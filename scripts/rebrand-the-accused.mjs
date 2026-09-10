@@ -6,6 +6,8 @@ const skipDirs = new Set(['.git', 'node_modules', 'coverage', 'test-results']);
 const textExtensions = new Set(['.js', '.mjs', '.cjs', '.go', '.html', '.css', '.json', '.md', '.txt', '.yml', '.yaml', '.sh', '.ps1']);
 
 const replacements = [
+    // Legacy game identity -> current game identity.
+    ['Journey through Earth, Water, Fire, and Air. Restore their ancient crystals, awaken the Eidolons, and confront the darkness beyond.', 'Test your skill, shape your shadow, and forge your legend. Enter the world of The Accused — Shadow-Shinobi, master combat and crafting, gather rare materials, and build a shinobi capable of rising to Transcendent.'],
     ['EIDOLON ONLINE', 'THE ACCUSED - SHADOW-SHINOBI'],
     ['Eidolon Online', 'The Accused - Shadow-Shinobi'],
     ['EIDOLON', 'THE ACCUSED'],
