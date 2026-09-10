@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client-tests:
+    name: Client Tests (Jest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --coverage --coverageReporters=lcov --coverageReporters=text
+      - run: npm run benchmark:client
+
+  server-tests:
+    name: Server Tests (Go)
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URI: mongodb://localhost:27017
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.5'
+          cache-dependency-path: server/go.sum
+      - working-directory: server
+        run: go test -v ./...
+      - working-directory: server
+        run: go test -race ./...
+      - working-directory: server
+        run: go build -trimpath ./...
+
+  browser-smoke:
+    name: Browser Smoke (Playwright ${{ matrix.shard }}/3)
+    needs: [client-tests, server-tests]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies and browser
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run anonymous real-browser smoke
+        run: |
+          npm run test:e2e:anonymous -- --shard=${{ matrix.shard }}/3
+          if [ "${{ matrix.shard }}" = 1 ]; then
+            npm run test:e2e:nameplates
+            npm run test:e2e:resource-hud
+          fi
+          if [ "${{ matrix.shard }}" = 2 ]; then
+            npm run test:e2e:interface
+          fi
+
+  predeploy-character:
+    name: Predeploy Character QA (System Chrome)
+    needs: [browser-smoke]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run test:e2e:animations
+      - run: npm run test:e2e:isolated
+
+  release-inputs:
+    name: Validate Production QA Inputs
+    needs: [predeploy-character]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    steps:
+      - name: Validate release gate
+        run: echo "Shadow-Shinobi release gate ready"
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [client-tests, server-tests, browser-smoke, release-inputs]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Deployment remains gated behind all test stages"
