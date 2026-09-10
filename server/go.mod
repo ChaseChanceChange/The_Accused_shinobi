@@ -1,4 +1,4 @@
-module the-accused-shadow-shinobi-server
+module eidolon-server
 
 go 1.24.5
 
