@@ -1,0 +1,51 @@
+{
+  "name": "eidolon-tests",
+  "version": "1.0.60",
+  "description": "Eidolon browser game client, validation, and release tooling",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "prepare:client": "node scripts/prepare-client.mjs",
+    "postinstall": "npm run prepare:client",
+    "serve": "node scripts/serve-static.mjs",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:smoke": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runTestsByPath tests/CollisionManager.test.js tests/ItemSystem.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:nameplates": "playwright test tests/e2e/nameplate-readability.spec.js",
+    "test:e2e:resource-hud": "playwright test tests/e2e/resource-hud.spec.js",
+    "test:e2e:interface": "playwright test tests/e2e/journal-daily-presentation.spec.js tests/e2e/combat-action-preview.spec.js tests/e2e/desktop-action-readability.spec.js",
+    "test:e2e:anonymous": "playwright test tests/e2e/respawn-appearance.spec.js tests/e2e/entrance-visibility.spec.js tests/e2e/ground-aim.spec.js tests/e2e/loot-pointer.spec.js tests/e2e/anonymous.spec.js tests/e2e/visual-polish.spec.js tests/e2e/menu-layers.spec.js tests/e2e/raid-menu.spec.js tests/e2e/dungeon-layout-polish.spec.js tests/e2e/mobile-pinch.spec.js tests/e2e/mobile-hud-layout.spec.js tests/e2e/mobile-chat-layering.spec.js tests/e2e/mobile-camera-layout.spec.js tests/e2e/mobile-inventory-layout.spec.js tests/e2e/equipment-recovery-layout.spec.js tests/e2e/mobile-quest-layout.spec.js tests/e2e/mobile-skills-layout.spec.js tests/e2e/mobile-settings-layout.spec.js tests/e2e/mobile-adventure-layout.spec.js tests/e2e/mobile-menu-layout.spec.js tests/e2e/mobile-status-layout.spec.js tests/e2e/mobile-status-compact.spec.js tests/e2e/mobile-stash-layout.spec.js tests/e2e/phone-encounter-composition.spec.js tests/e2e/phone-action-readability.spec.js tests/e2e/offline-seraph-render.spec.js tests/e2e/summon-action-readability.spec.js tests/e2e/trading-selection.spec.js",
+    "test:e2e:authenticated": "playwright test tests/e2e/authenticated.spec.js",
+    "test:e2e:isolated": "bash scripts/run-isolated-character-qa.sh",
+    "test:e2e:live-animations": "bash scripts/run-live-animation-qa.sh",
+    "test:e2e:movement": "playwright test tests/e2e/movement-smoothness.spec.js",
+    "test:e2e:visual-load": "playwright test tests/e2e/raid-scene-performance.spec.js",
+    "test:e2e:multiplayer": "playwright test tests/e2e/multiplayer.spec.js",
+    "test:e2e:animations": "playwright test tests/e2e/animation-gallery.spec.js tests/e2e/character-fit.spec.js tests/e2e/character-sheet.spec.js tests/e2e/terrain-polish.spec.js tests/e2e/combat-readability.spec.js tests/e2e/dark-king.spec.js tests/e2e/production-dungeon-layouts.spec.js tests/e2e/quest-item-icons.spec.js tests/e2e/pvp-feedback.spec.js",
+    "benchmark:client": "node scripts/benchmark-client.mjs",
+    "audit:talent-consumers": "node scripts/audit-talent-consumers.mjs",
+    "verify:browser-gpu": "node scripts/verify-browser-gpu.mjs",
+    "docs:animations": "node scripts/generate-animation-coverage.mjs",
+    "lint": "eslint src tests scripts playwright.config.js --max-warnings=0"
+  },
+  "dependencies": {
+    "three": "0.181.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "1.61.1",
+    "eslint": "^9.39.1",
+    "globals": "^15.15.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "protobufjs": "8.7.1",
+    "protobufjs-cli": "2.6.1"
+  },
+  "overrides": {
+    "test-exclude": "^7.0.0"
+  }
+}

@@ -1,0 +1,721 @@
+package game
+
+import (
+	"eidolon-server/internal/database"
+	"eidolon-server/internal/lifecycle"
+	"fmt"
+	"log"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AuctionStatus string
+
+const (
+	AuctionActive    AuctionStatus = "ACTIVE"
+	AuctionSold      AuctionStatus = "SOLD"
+	AuctionExpired   AuctionStatus = "EXPIRED"
+	AuctionCancelled AuctionStatus = "CANCELLED"
+
+	TradingSalesFeePercent = 0.05 // 5% fee on sale
+	TradingDepositPercent  = 0.05 // 5% deposit to list
+	TradingMinDeposit      = 1    // Minimum 1 gold deposit
+)
+
+type Auction struct {
+	LastBidOperationID string                   `json:"-"`
+	PendingRefunds     []database.AuctionRefund `json:"-"`
+	ID                 string                   `json:"id"`
+	SellerID           string                   `json:"sellerId"`
+	SellerName         string                   `json:"sellerName"`
+	Item               Item                     `json:"item"`
+	Bid                int                      `json:"currentBid"`
+	Buyout             int                      `json:"buyoutPrice"`
+	Duration           int                      `json:"duration"` // Hours
+	StartTime          time.Time                `json:"startTime"`
+	EndTime            time.Time                `json:"endTime"`
+	Status             AuctionStatus            `json:"status"`
+	BuyerID            string                   `json:"buyerId"`
+	BidderID           string                   `json:"bidderId"`
+	BidderName         string                   `json:"bidderName"`
+	Deposit            int                      `json:"deposit"`
+	SalePrice          int                      `json:"salePrice,omitempty"`
+	ItemClaimed        bool                     `json:"itemClaimed,omitempty"`
+	SellerClaimed      bool                     `json:"sellerClaimed,omitempty"`
+}
+
+type TradingSystem struct {
+	refundMu         sync.Mutex
+	refundStopping   atomic.Bool
+	refundScheduled  bool // Protected by mu; coalesce bursts into one worker.
+	refundRetryAfter time.Time
+	refundCursor     string
+	loadError        error
+	deliverRefund    func(database.AuctionRefund) error
+	backgroundWork   lifecycle.Group
+	mu               sync.RWMutex
+	Auctions         map[string]*Auction
+	pendingBids      map[string]database.AuctionBidOperation
+	db               *database.DB
+	economy          *EconomyTelemetry
+}
+
+func NewTradingSystem(db *database.DB) *TradingSystem {
+	ts := &TradingSystem{
+		Auctions:    make(map[string]*Auction),
+		pendingBids: make(map[string]database.AuctionBidOperation),
+		db:          db,
+	}
+	if db != nil {
+		ts.loadAuctions()
+		if ts.loadError == nil {
+			ts.loadBidOperations()
+		}
+	}
+	return ts
+}
+
+func (ts *TradingSystem) loadAuctions() {
+	ts.loadAuctionSnapshot(ts.db.LoadAuctions)
+}
+
+func (ts *TradingSystem) loadAuctionSnapshot(load func() ([]*database.Auction, error)) {
+	auctions, err := load()
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.loadError = err
+	if err != nil {
+		log.Printf("Failed to load auctions: %v", err)
+		return
+	}
+
+	count := 0
+	for _, dbAuction := range auctions {
+		auction := ts.fromDBAuction(dbAuction)
+		// Only load active auctions or those needing collection
+		// Actually load all, cleanup will handle expiration
+		ts.Auctions[auction.ID] = auction
+		count++
+	}
+	log.Printf("Loaded %d auctions from database", count)
+}
+
+// Startup must not silently publish an empty market after losing access to its
+// durable auctions/refund outbox. A nil database is reserved for local/unit play.
+func (ts *TradingSystem) ReadinessError() error {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.loadError
+}
+
+func (ts *TradingSystem) toDBAuction(a *Auction) *database.Auction {
+	return &database.Auction{
+		LastBidOperationID: a.LastBidOperationID,
+		PendingRefunds:     append([]database.AuctionRefund(nil), a.PendingRefunds...),
+		ID:                 a.ID,
+		SellerID:           a.SellerID,
+		SellerName:         a.SellerName,
+		Item:               ts.toDBItem(a.Item),
+		Bid:                a.Bid,
+		Buyout:             a.Buyout,
+		Duration:           a.Duration,
+		StartTime:          a.StartTime,
+		EndTime:            a.EndTime,
+		Status:             string(a.Status),
+		BuyerID:            a.BuyerID,
+		BidderID:           a.BidderID,
+		BidderName:         a.BidderName,
+		Deposit:            a.Deposit,
+		SalePrice:          a.SalePrice,
+		ItemClaimed:        a.ItemClaimed,
+		SellerClaimed:      a.SellerClaimed,
+	}
+}
+
+func (ts *TradingSystem) toDBItem(i Item) database.Item {
+	return database.Item{
+		ID:               i.ID,
+		Name:             i.Name,
+		Type:             string(i.Type),
+		Slot:             i.Slot,
+		Rarity:           string(i.Rarity),
+		Level:            i.Level,
+		Stats:            i.Stats,
+		Value:            i.Value,
+		Icon:             i.Icon,
+		Description:      i.Description,
+		Stack:            i.Stack,
+		MaxStack:         i.MaxStack,
+		Potency:          i.Potency,
+		Sockets:          i.Sockets,
+		Gems:             toDBSocketedGems(i.Gems),
+		SetID:            i.SetID,
+		UniqueEffect:     i.UniqueEffect,
+		GemType:          string(i.GemType),
+		GemQuality:       string(i.GemQuality),
+		StatScaleVersion: i.StatScaleVersion,
+		ForgeBasis:       i.ForgeBasis.Clone(),
+	}
+}
+
+func toDBSocketedGems(gems []SocketedGem) []database.SocketedGem {
+	if len(gems) == 0 {
+		return nil
+	}
+	converted := make([]database.SocketedGem, 0, len(gems))
+	for _, gem := range gems {
+		converted = append(converted, database.SocketedGem{
+			Type:    string(gem.Type),
+			Quality: string(gem.Quality),
+			Stats:   gem.Stats,
+		})
+	}
+	return converted
+}
+
+func fromDBSocketedGems(gems []database.SocketedGem) []SocketedGem {
+	if len(gems) == 0 {
+		return nil
+	}
+	converted := make([]SocketedGem, 0, len(gems))
+	for _, gem := range gems {
+		converted = append(converted, SocketedGem{
+			Type:    GemType(gem.Type),
+			Quality: GemQuality(gem.Quality),
+			Stats:   gem.Stats,
+		})
+	}
+	return converted
+}
+
+func (ts *TradingSystem) fromDBAuction(a *database.Auction) *Auction {
+	return &Auction{
+		LastBidOperationID: a.LastBidOperationID,
+		PendingRefunds:     append([]database.AuctionRefund(nil), a.PendingRefunds...),
+		ID:                 a.ID,
+		SellerID:           a.SellerID,
+		SellerName:         a.SellerName,
+		Item:               ts.fromDBItem(a.Item),
+		Bid:                a.Bid,
+		Buyout:             a.Buyout,
+		Duration:           a.Duration,
+		StartTime:          a.StartTime,
+		EndTime:            a.EndTime,
+		Status:             AuctionStatus(a.Status),
+		BuyerID:            a.BuyerID,
+		BidderID:           a.BidderID,
+		BidderName:         a.BidderName,
+		Deposit:            a.Deposit,
+		SalePrice:          a.SalePrice,
+		ItemClaimed:        a.ItemClaimed,
+		SellerClaimed:      a.SellerClaimed,
+	}
+}
+
+func (ts *TradingSystem) fromDBItem(i database.Item) Item {
+	stack := i.Stack
+	if stack == 0 {
+		stack = 1
+	}
+	item := Item{
+		ID:               i.ID,
+		Name:             i.Name,
+		Type:             ItemType(i.Type),
+		Rarity:           ItemRarity(i.Rarity),
+		Slot:             i.Slot,
+		Level:            i.Level,
+		Stats:            i.Stats,
+		Value:            i.Value,
+		Icon:             i.Icon,
+		Description:      i.Description,
+		Stack:            stack,
+		MaxStack:         i.MaxStack,
+		Potency:          i.Potency,
+		Sockets:          i.Sockets,
+		Gems:             fromDBSocketedGems(i.Gems),
+		SetID:            i.SetID,
+		UniqueEffect:     i.UniqueEffect,
+		GemType:          GemType(i.GemType),
+		GemQuality:       GemQuality(i.GemQuality),
+		StatScaleVersion: i.StatScaleVersion,
+		ForgeBasis:       i.ForgeBasis.Clone(),
+	}
+	NormalizeItemStatScale(&item)
+	return item
+}
+
+func (ts *TradingSystem) CreateAuction(seller *Entity, item Item, bid, buyout, duration int) (*Auction, error) {
+	if ts.db != nil {
+		return nil, fmt.Errorf("persistent listings require a journaled account operation")
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	if IsChronicleQuestItem(item) {
+		return nil, fmt.Errorf("Chronicle artifacts are soulbound")
+	}
+	if bid <= 0 || buyout < bid || buyout > 1_000_000_000 || duration < 1 || duration > 168 || item.ID == "" {
+		return nil, fmt.Errorf("invalid price")
+	}
+
+	// Calculate Deposit
+	deposit := int(float64(buyout) * TradingDepositPercent)
+	if deposit < TradingMinDeposit {
+		deposit = TradingMinDeposit
+	}
+
+	seller.Mu.Lock()
+	if seller.Gold < deposit {
+		seller.Mu.Unlock()
+		return nil, fmt.Errorf("insufficient gold for deposit (%d gold required)", deposit)
+	}
+	seller.Gold -= deposit
+	seller.Mu.Unlock()
+
+	id := uuid.New().String()
+	auction := &Auction{
+		ID:         id,
+		SellerID:   seller.ID,
+		SellerName: seller.Name,
+		Item:       item,
+		Bid:        bid,
+		Buyout:     buyout,
+		Duration:   duration,
+		StartTime:  time.Now(),
+		EndTime:    time.Now().Add(time.Duration(duration) * time.Hour),
+		Status:     AuctionActive,
+		Deposit:    deposit,
+	}
+
+	ts.Auctions[id] = auction
+
+	// Save to DB
+	if ts.db != nil {
+		if err := ts.db.CreateAuction(ts.toDBAuction(auction)); err != nil {
+			log.Printf("Failed to save auction: %v", err)
+			delete(ts.Auctions, id)
+			seller.Mu.Lock()
+			seller.Gold += deposit
+			seller.Mu.Unlock()
+			return nil, fmt.Errorf("failed to create auction")
+		}
+	}
+
+	return auction, nil
+}
+
+func (ts *TradingSystem) SearchAuctions(query string) []*Auction {
+	return ts.SearchAuctionsFiltered(AuctionSearchFilter{Query: query})
+}
+
+type AuctionSearchFilter struct {
+	Query    string
+	ItemType string
+	Rarity   string
+	MinLevel int
+	MaxLevel int
+}
+
+// List responses outlive the trading lock while the network serializes them.
+// Detach nested item data and private refund state as well as scalar fields.
+func auctionSnapshot(auction *Auction) *Auction {
+	snapshot := *auction
+	snapshot.Item = cloneItem(auction.Item)
+	snapshot.PendingRefunds = append([]database.AuctionRefund(nil), auction.PendingRefunds...)
+	return &snapshot
+}
+
+func (ts *TradingSystem) SearchAuctionsFiltered(filter AuctionSearchFilter) []*Auction {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	var results []*Auction
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	itemType := strings.TrimSpace(filter.ItemType)
+	rarity := strings.TrimSpace(filter.Rarity)
+
+	for _, auction := range ts.Auctions {
+		if auction.Status != AuctionActive {
+			continue
+		}
+
+		// Check expiration
+		if time.Now().After(auction.EndTime) {
+			// Lazy expiration
+			// We can't modify in RLock, so we'll just skip it for now
+			// A background cleanup task should handle state changes
+			continue
+		}
+
+		if query != "" && !strings.Contains(strings.ToLower(auction.Item.Name), query) {
+			continue
+		}
+		if itemType != "" && !strings.EqualFold(string(auction.Item.Type), itemType) {
+			continue
+		}
+		if rarity != "" && !strings.EqualFold(string(auction.Item.Rarity), rarity) {
+			continue
+		}
+		if filter.MinLevel > 0 && auction.Item.Level < filter.MinLevel {
+			continue
+		}
+		if filter.MaxLevel > 0 && auction.Item.Level > filter.MaxLevel {
+			continue
+		}
+		results = append(results, auctionSnapshot(auction))
+	}
+
+	// Sort by time remaining (soonest first)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].EndTime.Before(results[j].EndTime)
+	})
+
+	return results
+}
+
+func (ts *TradingSystem) GetPlayerAuctions(playerID string) []*Auction {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	var results []*Auction
+	for _, auction := range ts.Auctions {
+		if auction.SellerID == playerID && !auction.SellerClaimed {
+			results = append(results, auctionSnapshot(auction))
+		} else if auction.BuyerID == playerID && auction.Status == AuctionSold && !auction.ItemClaimed {
+			// Include won auctions so I can collect them
+			results = append(results, auctionSnapshot(auction))
+		}
+	}
+
+	// Sort by status (Active first) then time
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Status != results[j].Status {
+			return results[i].Status == AuctionActive
+		}
+		return results[i].EndTime.Before(results[j].EndTime)
+	})
+
+	return results
+}
+
+func (ts *TradingSystem) BuyoutAuction(auctionID string, buyer *Entity, w *World) (*Item, error) {
+	if ts.db != nil {
+		return nil, fmt.Errorf("persistent buyouts require a journaled account operation")
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if _, pending := ts.pendingBids[auctionID]; pending {
+		return nil, ErrAuctionBidPending
+	}
+
+	auction, ok := ts.Auctions[auctionID]
+	if !ok {
+		return nil, fmt.Errorf("auction not found")
+	}
+
+	if auction.Status != AuctionActive {
+		return nil, fmt.Errorf("auction is not active")
+	}
+
+	if time.Now().After(auction.EndTime) {
+		return nil, fmt.Errorf("auction expired")
+	}
+
+	if buyer.ID == auction.SellerID {
+		return nil, fmt.Errorf("cannot buy your own auction")
+	}
+	if auction.Buyout <= 0 {
+		return nil, fmt.Errorf("auction has no buyout price")
+	}
+
+	buyer.Mu.Lock()
+	defer buyer.Mu.Unlock()
+	if buyer.Gold < auction.Buyout {
+		return nil, fmt.Errorf("insufficient gold")
+	}
+
+	// Check for inventory space (Conservative check)
+	canFit := false
+	// Check for empty slot
+	for _, invItem := range buyer.Inventory {
+		if invItem.ID == "" {
+			canFit = true
+			break
+		}
+	}
+
+	if !canFit && auction.Item.MaxStack > 1 {
+		// Check if it can stack
+		for _, invItem := range buyer.Inventory {
+			if invItem.ID != "" && invItem.Name == auction.Item.Name && invItem.Stack < invItem.MaxStack {
+				canFit = true
+				break
+			}
+		}
+	}
+
+	if !canFit {
+		return nil, fmt.Errorf("inventory full")
+	}
+
+	// Persist the single winning transition before delivering the item. The
+	// claimed flag prevents a buyout winner from collecting the same item again.
+	previousStatus, previousBuyer := auction.Status, auction.BuyerID
+	previousRefunds := len(auction.PendingRefunds)
+	ts.appendBidRefundLocked(auction)
+	auction.Status = AuctionSold
+	auction.BuyerID = buyer.ID
+	auction.SalePrice = auction.Buyout
+	auction.ItemClaimed = true
+	if ts.db != nil {
+		if err := ts.db.UpdateAuction(ts.toDBAuction(auction)); err != nil {
+			auction.Status, auction.BuyerID = previousStatus, previousBuyer
+			auction.SalePrice, auction.ItemClaimed = 0, false
+			auction.PendingRefunds = auction.PendingRefunds[:previousRefunds]
+			return nil, fmt.Errorf("failed to persist auction buyout")
+		}
+	}
+
+	buyer.Gold -= auction.Buyout
+	ts.scheduleRefundDeliveryLocked()
+
+	// Add item to buyer
+	remaining := buyer.AddItemToInventory(auction.Item)
+	if remaining > 0 {
+		// Fallback: Try Stash
+		leftoverItem := auction.Item
+		leftoverItem.Stack = remaining
+
+		remStash := buyer.AddItemToStash(leftoverItem)
+		if remStash > 0 {
+			// Fallback: Drop on Ground
+			leftoverItem.Stack = remStash
+			w.DropLoot(leftoverItem, buyer.X, buyer.Y)
+		}
+	}
+
+	return &auction.Item, nil
+}
+
+func (ts *TradingSystem) BidAuction(auctionID string, bidder *Entity, bidAmount int) error {
+	return ts.bidWithoutDatabase(auctionID, bidder, bidAmount)
+}
+
+func (ts *TradingSystem) CollectAuction(auctionID string, player *Entity) (interface{}, error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if _, pending := ts.pendingBids[auctionID]; pending {
+		return nil, ErrAuctionBidPending
+	}
+
+	auction, ok := ts.Auctions[auctionID]
+	if !ok {
+		return nil, fmt.Errorf("auction not found")
+	}
+
+	// Case 1: Seller collecting Gold (Sold) or Item (Expired/Cancelled)
+	if auction.SellerID == player.ID {
+		if auction.Status == AuctionSold && !auction.SellerClaimed {
+			if ts.db != nil {
+				return nil, fmt.Errorf("persistent payouts require a journaled account operation")
+			}
+			// Collect Gold
+			gold := auction.SalePrice
+			if gold <= 0 {
+				gold = auction.Bid
+			}
+
+			// Calculate Sales Fee
+			fee := int(float64(gold) * TradingSalesFeePercent)
+			if ts.economy != nil {
+				ts.economy.RecordSink("trading_house_fee", fee)
+			}
+			payout := gold - fee
+
+			// Refund Deposit
+			payout += auction.Deposit
+
+			auction.SellerClaimed = true
+			if err := ts.persistOrDeleteClaimedAuction(auctionID, auction); err != nil {
+				auction.SellerClaimed = false
+				return nil, err
+			}
+			player.Mu.Lock()
+			player.Gold += payout
+			player.Mu.Unlock()
+
+			return payout, nil
+		} else if (auction.Status == AuctionExpired || auction.Status == AuctionCancelled) && !auction.ItemClaimed {
+			if ts.db != nil {
+				return nil, fmt.Errorf("persistent item returns require a journaled account operation")
+			}
+			if ts.economy != nil {
+				ts.economy.RecordSink("trading_house_deposit", auction.Deposit)
+			}
+			// Collect Item
+			// Caller must handle adding item to inventory
+
+			// Keep the outbox even when every collectible has been delivered.
+			auction.ItemClaimed, auction.SellerClaimed = true, true
+			if err := ts.persistOrDeleteClaimedAuction(auctionID, auction); err != nil {
+				auction.ItemClaimed, auction.SellerClaimed = false, false
+				return nil, err
+			}
+
+			return auction.Item, nil
+		}
+	}
+
+	// Case 2: Buyer collecting Item (Won via Bid)
+	if auction.Status == AuctionSold && auction.BuyerID == player.ID && !auction.ItemClaimed {
+		if ts.db != nil {
+			return nil, fmt.Errorf("persistent item claims require a journaled account operation")
+		}
+		auction.ItemClaimed = true
+		if err := ts.persistOrDeleteClaimedAuction(auctionID, auction); err != nil {
+			auction.ItemClaimed = false
+			return nil, err
+		}
+		return auction.Item, nil
+	}
+
+	return nil, fmt.Errorf("nothing to collect")
+}
+
+func (ts *TradingSystem) persistOrDeleteClaimedAuction(auctionID string, auction *Auction) error {
+	if _, pending := ts.pendingBids[auctionID]; pending {
+		return ErrAuctionBidPending
+	}
+	if auction.ItemClaimed && auction.SellerClaimed && len(auction.PendingRefunds) == 0 {
+		if ts.db != nil {
+			if err := ts.db.DeleteAuction(auctionID); err != nil {
+				return fmt.Errorf("failed to finalize auction")
+			}
+		}
+		delete(ts.Auctions, auctionID)
+		return nil
+	}
+	if ts.db != nil {
+		if err := ts.db.UpdateAuction(ts.toDBAuction(auction)); err != nil {
+			return fmt.Errorf("failed to persist auction claim")
+		}
+	}
+	return nil
+}
+
+// CleanupExpired checks for expired auctions
+func (ts *TradingSystem) CleanupExpired() {
+	var persist func(*database.Auction) error
+	if ts.db != nil {
+		persist = ts.db.UpdateAuction
+	}
+	ts.cleanupExpiredWithPersistence(persist)
+}
+
+func (ts *TradingSystem) cleanupExpiredWithPersistence(persist func(*database.Auction) error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	now := time.Now()
+	for _, auction := range ts.Auctions {
+		if _, pending := ts.pendingBids[auction.ID]; pending {
+			continue
+		}
+		if auction.Status != AuctionActive && auction.ItemClaimed && auction.SellerClaimed && len(auction.PendingRefunds) == 0 {
+			if err := ts.persistOrDeleteClaimedAuction(auction.ID, auction); err != nil {
+				log.Printf("Completed auction cleanup remains pending: %v", err)
+			}
+			continue
+		}
+		if auction.Status == AuctionActive && now.After(auction.EndTime) {
+			updated := *auction
+			if auction.BidderID != "" {
+				updated.Status = AuctionSold
+				updated.BuyerID = auction.BidderID
+				updated.SalePrice = auction.Bid
+			} else {
+				updated.Status = AuctionExpired
+			}
+			// Publish eligibility for collection only after the sale is durable.
+			// An errored reply retains an expired-by-time ACTIVE record, which
+			// cannot accept bids/buyouts and will reconcile on the next pass.
+			if persist != nil {
+				if err := persist(ts.toDBAuction(&updated)); err != nil {
+					log.Printf("Failed to update expired auction: %v", err)
+					continue
+				}
+			}
+			*auction = updated
+		}
+	}
+}
+
+func (ts *TradingSystem) RemoveAuction(auctionID string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if _, pending := ts.pendingBids[auctionID]; pending {
+		return
+	}
+	if auction := ts.Auctions[auctionID]; auction != nil && len(auction.PendingRefunds) == 0 {
+		delete(ts.Auctions, auctionID)
+	}
+}
+
+func (ts *TradingSystem) CancelAuction(auctionID string, player *Entity, w *World) error {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if _, pending := ts.pendingBids[auctionID]; pending {
+		return ErrAuctionBidPending
+	}
+
+	auction, ok := ts.Auctions[auctionID]
+	if !ok {
+		return fmt.Errorf("auction not found")
+	}
+
+	if auction.SellerID != player.ID {
+		return fmt.Errorf("not your auction")
+	}
+
+	if auction.Status != AuctionActive {
+		return fmt.Errorf("auction is not active")
+	}
+
+	previousRefunds := len(auction.PendingRefunds)
+	ts.appendBidRefundLocked(auction)
+	auction.Status, auction.ItemClaimed, auction.SellerClaimed = AuctionCancelled, true, true
+	if err := ts.persistOrDeleteClaimedAuction(auctionID, auction); err != nil {
+		auction.Status, auction.ItemClaimed, auction.SellerClaimed = AuctionActive, false, false
+		auction.PendingRefunds = auction.PendingRefunds[:previousRefunds]
+		return err
+	}
+	ts.scheduleRefundDeliveryLocked()
+
+	// Refund item only after cancellation is durable.
+	player.Mu.Lock()
+	remaining := player.AddItemToInventory(auction.Item)
+	player.Mu.Unlock()
+
+	if remaining > 0 {
+		// Fallback: Try Stash
+		leftoverItem := auction.Item
+		leftoverItem.Stack = remaining
+
+		player.Mu.Lock()
+		remStash := player.AddItemToStash(leftoverItem)
+		player.Mu.Unlock()
+
+		if remStash > 0 {
+			// Fallback: Drop on Ground
+			leftoverItem.Stack = remStash
+			w.DropLoot(leftoverItem, player.X, player.Y)
+		}
+	}
+
+	return nil
+}

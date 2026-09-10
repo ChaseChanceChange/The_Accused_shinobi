@@ -1,0 +1,259 @@
+syntax = "proto3";
+
+package eidolon.state;
+
+option go_package = "eidolon-server/internal/proto;proto";
+
+// Keep this as a "hot path" schema: state + delta snapshots.
+// Low-frequency messages (auth/chat/trading/etc) can remain JSON.
+
+message StateEnvelope {
+  uint32 version = 1; // protocol version, start at 1
+
+  oneof payload {
+    StateFull full = 2;
+    StateDelta delta = 3;
+  }
+
+  // Server tick timestamp lets clients preserve snapshot spacing even when
+  // delivery jitter makes packet arrival uneven.
+  uint64 server_time_ms = 4;
+}
+
+message StateFull {
+  repeated Entity entities = 1;
+}
+
+message StateDelta {
+  repeated Entity entities = 1;      // changed/new entities
+  repeated string removed_ids = 2;   // entity ids to delete
+}
+
+message Stats {
+  int32 strength = 1;
+  int32 dexterity = 2;
+  int32 intelligence = 3;
+  int32 wisdom = 4;
+  int32 vitality = 5;
+}
+
+message Quest {
+  string id = 1;
+  string type = 2;
+  string target = 3;
+  int32 count = 4;
+  int32 max_count = 5;
+  int32 reward_xp = 6;
+  bool completed = 7;
+  bool accepted = 8;
+  string title = 9;
+  string description = 10;
+  string lore = 11;
+  string category = 12;
+  int32 chapter = 13;
+  string objective_text = 14;
+  int32 reward_gold = 15;
+  int32 granted_gold = 16;
+  int32 granted_xp = 17;
+  int32 granted_resonance_xp = 18;
+  uint32 investigation_mask = 19;
+}
+
+message SocketedGem {
+  string type = 1;
+  string quality = 2;
+  map<string, int32> stats = 3;
+}
+
+message ForgeBasis {
+  int32 level = 1;
+  int32 potency = 2;
+  map<string, int32> stats = 3;
+  int32 value = 4;
+}
+
+message Item {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+  string rarity = 4;
+  string slot = 5;
+  int32 level = 6;
+  map<string, int32> stats = 7;
+  int32 value = 8;
+  string icon = 9;
+  string description = 10;
+  int32 stack = 11;
+  int32 max_stack = 12;
+  int32 potency = 13;
+  int32 sockets = 14;
+  string gem_type = 15;
+  string gem_quality = 16;
+  repeated SocketedGem gems = 17;
+  string set_id = 18;
+  string unique_effect = 19;
+  int32 stat_scale_version = 20;
+  ForgeBasis forge_basis = 21;
+}
+
+message Entity {
+  string id = 1;
+  string instance_id = 2;
+  string name = 3;
+  string type = 4;
+  string sub_type = 5;
+
+  float x = 6;
+  float y = 7;
+  float z = 8;
+  float rotation = 9;
+
+  int32 health = 10;
+  int32 max_health = 11;
+  int32 mana = 12;
+  int32 max_mana = 13;
+
+  int32 level = 14;
+  // Level-cap requirements exceed signed 32-bit range; keep these as 64-bit
+  // integers while values remain exactly representable by browser Numbers.
+  int64 experience = 15;
+  int64 max_experience = 16;
+  int32 gold = 17;
+
+  // Skills
+  int32 skill_points = 18;
+  string selected_branch = 19;
+  repeated string unlocked_skills = 20;
+
+  // Stats
+  Stats base_stats = 21;
+  Stats stats = 22;
+  int32 damage = 23;
+  int32 defense = 24;
+
+  // Derived
+  float speed = 25;
+  float attack_speed = 26;
+  float cooldown_reduction = 27;
+  float hp_regen = 28;
+  float mana_regen = 29;
+  float cast_speed = 30;
+  float scale = 31;
+
+  // Core state
+  string state = 32;
+
+  // Equipment + quests (inventory is sent via separate messages in current server model)
+  map<string, Item> equipment = 33;
+  repeated Quest quests = 34;
+
+  // Loot
+  Item loot_item = 35;
+
+  // Projectile
+  string owner_id = 36;
+  float vel_x = 37;
+  float vel_z = 38;
+
+  // Ability flags (subset)
+  bool spirits_active = 39;
+  bool spirits_boosted = 40;
+  bool is_charging = 41;
+  bool guardian_embrace_active = 51;
+  bool blessing_resolve_active = 52;
+  bool divine_intervention_active = 53;
+  bool arcane_shield_active = 54;
+  int32 arcane_shield_hp = 55;
+  bool time_warp_active = 56;
+  bool spell_focus_active = 57;
+  bool swift_active = 77;
+  bool iron_fortress_active = 90;
+  bool guardian_roar_active = 91;
+  bool berserker_mode_active = 92;
+  bool last_stand_active = 93;
+  bool serrated_edges_active = 94;
+  bool poison_coating_active = 95;
+  bool stealth_active = 96;
+  bool zeal_active = 97;
+
+  // Common buff/debuff booleans used for visuals/behavior
+  bool stunned = 42;
+  bool slowed = 43;
+  bool rooted = 44;
+  bool bleeding = 45;
+  bool poisoned = 46;
+  bool weak_point_marked = 66;
+  float weak_point_duration = 67;
+  bool mark_weakness = 68;
+  float mark_weakness_duration = 69;
+  float spirit_duration = 70;
+  float blessing_resolve_duration = 71;
+  float time_warp_duration = 72;
+  float guardian_embrace_duration = 73;
+  float arcane_shield_duration = 74;
+  float divine_intervention_duration = 75;
+  float spell_focus_duration = 76;
+  float swift_duration = 78;
+  float iron_fortress_duration = 98;
+  float guardian_roar_duration = 99;
+  float berserker_mode_duration = 100;
+  float last_stand_duration = 101;
+  float serrated_edges_duration = 102;
+  float poison_coating_duration = 103;
+  float stealth_duration = 104;
+  float zeal_duration = 105;
+  // Newest client movement sample accepted by the server. Owning clients use
+  // this to distinguish an acknowledged prediction from a real correction.
+  uint64 move_sequence = 106;
+  float slow_factor = 58;
+  float root_duration = 59;
+  float stun_duration = 60;
+  float bleed_duration = 61;
+  float poison_duration = 62;
+  int32 bleed_damage = 63;
+  int32 poison_damage = 64;
+  float slow_duration = 65;
+
+  // Passive talents
+  int32 talent_points = 47;
+  repeated string unlocked_talents = 48;
+  // Ranked passive talents: talentId -> rank.
+  // New clients should use this; unlocked_talents is retained for backwards compatibility.
+  map<string, int32> talent_ranks = 49;
+
+  // Skill runes: skillName -> runeId
+  map<string, string> skill_runes = 50;
+
+  // Social / party
+  string party_id = 79;
+  string social_status = 80;
+  // Public identity only; ranks, permissions, and membership remain server-owned.
+  string guild_id = 107;
+  string guild_tag = 108;
+  // Authoritative actor collision footprint, independent of model decoration.
+  float body_radius = 109;
+  // Authoritative sustained spin, including remaining time for new observers.
+  bool whirlwind_active = 110;
+  float whirlwind_duration = 111;
+  // Cast-time Meteor footprint for reconnects and removal-before-impact fallback.
+  float impact_radius = 112;
+  // Active Guardian Embrace's cast-time healing footprint for every observer.
+  float guardian_embrace_radius = 113;
+  // Active Spirit Guardians cast snapshot, independent of private build data.
+  float spirit_radius = 114;
+  string spirit_rune = 115;
+  // Server-owned rest bank; replicated for local/remote UI and aura state.
+  double well_rested_seconds = 116;
+  string safe_zone_id = 117;
+
+  // Authoritative jump replication
+  float jump_start_x = 81;
+  float jump_start_y = 82;
+  float jump_start_z = 83;
+  float jump_target_x = 84;
+  float jump_target_y = 85;
+  float jump_target_z = 86;
+  float jump_duration = 87;
+  float jump_height = 88;
+  float jump_progress = 89;
+}

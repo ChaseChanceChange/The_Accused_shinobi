@@ -1,0 +1,24 @@
+node_modules/
+vendor/
+server/bot_data.json
+server/cmd/loadtest/bot_data.json
+public/
+playwright-report/
+test-results/
+.playwright/
+*.pem
+*.exe
+server/server
+server/eidolon-server
+*.archive.gz
+server/bug_reports.json
+tools/
+
+# Server logs
+server.log
+logs/
+server/logs/
+server/backups/
+Caddyfile
+server/.env
+coverage/

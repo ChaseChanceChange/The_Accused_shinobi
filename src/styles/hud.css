@@ -1,0 +1,655 @@
+/* ============================================================
+   Player HUD — Health/Mana Bars, Game Timer, XP Bar, Menu Bar
+   ============================================================ */
+
+/* ---- Player HUD ---- */
+#player-hud {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    width: 300px;
+    pointer-events: auto;
+}
+
+.bar-container {
+    width: 100%;
+    height: 20px;
+    background: var(--bg-dark-medium);
+    border: 1px solid var(--border-light);
+    margin-bottom: var(--spacing-sm);
+    position: relative;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    width: 100%;
+    transition: width var(--transition-default) ease-out;
+}
+
+.health-fill { background: linear-gradient(90deg, var(--color-health-start), var(--color-health-end)); }
+.mana-fill   { background: linear-gradient(90deg, var(--color-mana-start), var(--color-mana-end)); }
+
+.bar-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 12px;
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    font-weight: bold;
+}
+
+/* ---- Connection State Indicator ---- */
+#conn-indicator {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-primary);
+    letter-spacing: 0.5px;
+    pointer-events: none;
+    z-index: calc(var(--z-tooltip) + 1);
+    display: none;
+}
+
+#conn-indicator.conn-indicator--reconnecting {
+    display: block;
+    color: #fff;
+    background: rgba(180, 100, 0, 0.92);
+    border: 1px solid #e6a23c;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+    animation: conn-pulse 1.4s ease-in-out infinite;
+}
+
+#conn-indicator.conn-indicator--lost {
+    display: block;
+    color: #fff;
+    background: rgba(140, 0, 0, 0.92);
+    border: 1px solid #ff4444;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes conn-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+}
+
+/* ---- Game Timer ---- */
+#game-timer {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-gold);
+    text-shadow: 0 1px 2px #000;
+    font-family: var(--font-primary);
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-panel);
+    padding: 8px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+    z-index: var(--z-game-timer);
+    letter-spacing: 0.04em;
+}
+
+#game-timer::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border: 1px solid var(--color-gold);
+    transform: rotate(45deg);
+    margin-right: 10px;
+}
+
+#objectives-panel {
+    display: none;
+    flex-direction: column;
+    position: fixed;
+    top: 66px;
+    left: 20px;
+    width: min(320px, calc(100vw - 40px));
+    max-height: min(360px, max(80px, calc(100vh - var(--chat-panel-height, 230px) - var(--chat-panel-bottom, 80px) - 82px)));
+    overflow-y: hidden;
+    overflow-x: hidden;
+    pointer-events: none;
+    z-index: calc(var(--z-hud) + 1);
+}
+
+#combat-intent-panel {
+    display: none;
+    pointer-events: none;
+    position: fixed;
+    top: 232px;
+    right: 20px;
+    width: min(280px, calc(100vw - 40px));
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 215, 0, 0.35);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, rgba(18, 20, 28, 0.96) 0%, rgba(10, 12, 18, 0.92) 100%);
+    color: #f4f4f4;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    z-index: calc(var(--z-hud) + 1);
+}
+
+#minimap-hud {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: calc(var(--z-hud) + 1);
+    pointer-events: none;
+}
+
+#minimap-hud > * {
+    pointer-events: auto;
+}
+
+.minimap-buff-list {
+    display: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 44px;
+    padding: 8px;
+    border: 1px solid rgba(255, 215, 120, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(10, 14, 22, 0.82) 0%, rgba(6, 10, 16, 0.72) 100%);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(4px);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.minimap-buff-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    width: min(132px, calc(100vw - 140px));
+}
+
+.minimap-buff-row--debuffs {
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 120, 120, 0.18);
+}
+
+.minimap-buff-icon {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 215, 120, 0.45);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(18, 26, 38, 0.96) 0%, rgba(10, 14, 22, 0.92) 100%);
+    color: #f8f4da;
+    font-size: 19px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+    outline: none;
+}
+
+.minimap-buff-icon:hover {
+    border-color: rgba(120, 220, 255, 0.65);
+    box-shadow: 0 0 0 1px rgba(120, 220, 255, 0.18), 0 8px 18px rgba(0, 0, 0, 0.34);
+    transform: translateY(-1px);
+}
+
+.minimap-buff-icon.is-buff {
+    border-color: rgba(255, 215, 120, 0.45);
+    background: linear-gradient(180deg, rgba(18, 26, 38, 0.96) 0%, rgba(10, 14, 22, 0.92) 100%);
+}
+
+.minimap-buff-icon.is-debuff {
+    border-color: rgba(255, 120, 120, 0.5);
+    background: linear-gradient(180deg, rgba(42, 18, 22, 0.96) 0%, rgba(24, 10, 14, 0.92) 100%);
+    color: #ffe6e6;
+}
+
+.minimap-buff-icon.is-debuff:hover {
+    border-color: rgba(255, 150, 150, 0.78);
+    box-shadow: 0 0 0 1px rgba(255, 120, 120, 0.18), 0 8px 18px rgba(0, 0, 0, 0.34);
+}
+
+.minimap-buff-icon:focus-visible {
+    box-shadow: 0 0 0 2px rgba(120, 220, 255, 0.32), 0 8px 18px rgba(0, 0, 0, 0.34);
+}
+
+.minimap-buff-tooltip {
+    position: fixed;
+    display: none;
+    max-width: 240px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 215, 120, 0.45);
+    border-radius: 8px;
+    background: rgba(8, 12, 18, 0.96);
+    color: #f1f1f1;
+    font-size: 12px;
+    line-height: 1.4;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+    pointer-events: none;
+    z-index: calc(var(--z-hud) + 3);
+}
+
+#dungeon-entrance-hint {
+    display: none;
+    pointer-events: none;
+    position: fixed;
+    top: 376px;
+    right: 20px;
+    width: min(280px, calc(100vw - 40px));
+    padding: 12px 14px;
+    border: 1px solid rgba(120, 190, 255, 0.35);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, rgba(10, 18, 32, 0.96) 0%, rgba(8, 12, 22, 0.92) 100%);
+    color: #f4f4f4;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    z-index: calc(var(--z-hud) + 1);
+}
+
+.dungeon-entrance-hint__name {
+    color: #9ad8ff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.dungeon-entrance-hint__status {
+    margin-top: 5px;
+    color: rgba(255, 255, 255, 0.84);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.dungeon-entrance-hint__prompt {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+}
+
+.combat-intent__name {
+    color: #ffd966;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.combat-intent__meta {
+    margin-top: 4px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+}
+
+.combat-intent__status {
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.combat-intent__status.is-in-range {
+    color: #7dffb3;
+}
+
+.combat-intent__status.is-move-into-range {
+    color: #ffd966;
+}
+
+.combat-intent__status.is-invalid {
+    color: #ff8f8f;
+}
+
+.combat-intent__preview-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 12px;
+}
+
+.objectives-panel__header {
+    flex-shrink: 0;
+    padding: 3px 0;
+    color: var(--color-gold);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-shadow: 0 1px 3px #000;
+}
+
+.objectives-panel__list {
+    min-height: 0;
+    overflow-y: auto;
+    pointer-events: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+#objectives-panel,
+#combat-intent-panel,
+#dungeon-entrance-hint,
+#player-hud,
+#game-timer,
+#chat-box {
+    box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+    #objectives-panel {
+        top: 70px;
+        left: 10px;
+        width: min(300px, calc(100vw - 20px));
+        max-height: min(42vh, max(80px, calc(100vh - var(--chat-panel-height, 230px) - var(--chat-panel-bottom, 80px) - 82px)));
+    }
+
+    #combat-intent-panel,
+    #dungeon-entrance-hint {
+        right: 10px;
+        width: min(260px, calc(100vw - 20px));
+    }
+
+    #combat-intent-panel {
+        top: 192px;
+    }
+
+    #dungeon-entrance-hint {
+        top: 320px;
+    }
+
+    #player-hud {
+        width: min(260px, calc(100vw - 20px));
+        left: 10px;
+    }
+}
+
+.objective-entry {
+    background: rgba(10, 12, 18, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 2px solid rgba(213, 187, 135, 0.55);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+}
+
+.objective-entry__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.objective-entry__title-wrap {
+    display: inline-flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.objective-entry__title {
+    color: #f2f2f2;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.objectives-panel__more { flex-shrink: 0; margin-top: 6px; border: 1px solid #b99b6240; border-radius: 5px; background: #111923ee; color: var(--color-gold); padding: 8px; cursor: pointer; font: inherit; font-size: 11px; }
+.objectives-panel__more:focus-visible { outline: 2px solid var(--color-gold); outline-offset: -2px; }
+.objectives-panel__more { pointer-events: auto; }
+/* Keep the Journal shortcut above the roster, not a stack of cards over its
+   controls. Restoring the solo HUD restores the complete tracker shortlist. */
+.party-roster-visible #objectives-list { display: none; }
+#objectives-panel .objective-entry__hint { font-size: 11px; line-height: 1.4; }
+#objectives-panel .objective-entry__status { flex-shrink: 0; }
+#objectives-panel .objective-entry { flex-shrink: 0; }
+#objectives-panel .objective-entry:not(:first-child) .objective-entry__title-wrap { flex-direction: row; align-items: center; }
+#objectives-panel .objective-entry:not(:first-child) .objective-entry__title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#objectives-panel .objective-entry:not(:first-child) .objective-entry__hint,
+#objectives-panel .objective-entry:not(:first-child) .objective-entry__progress { display: none; }
+.quest-tracking-control { display: flex; align-items: center; gap: 8px; color: var(--color-gold); font-size: 12px; cursor: pointer; min-height: 28px; }
+.quest-tracking-control input { accent-color: var(--color-gold); width: 16px; height: 16px; }
+.quest-tracking-control input:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 3px; }
+.quest-tracking-hint { color: #b7cce0; font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
+
+.objective-guidance { background: linear-gradient(145deg, #1f2936f2, #111923ed); }
+.objective-guidance__heading { color: var(--color-gold); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 7px; }
+.objective-guidance__cadence, .objective-guidance__sequence, .objective-guidance__footer { font-size: 11px; line-height: 1.5; margin-top: 6px; color: #a6bfd6; }
+.objective-guidance__sequence { color: #d5bb87; }
+.objective-guidance__footer { color: var(--color-text-muted); border-top: 1px solid #b99b6226; padding-top: 6px; }
+
+.objective-entry__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 217, 102, 0.45);
+    background: rgba(255, 217, 102, 0.12);
+    color: #ffe7a6;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.objective-entry__badge.is-objective {
+    border-color: rgba(255, 217, 102, 0.55);
+    background: rgba(255, 217, 102, 0.14);
+    color: #ffe7a6;
+}
+
+.objective-entry__badge.is-boss {
+    border-color: rgba(255, 110, 110, 0.55);
+    background: rgba(255, 110, 110, 0.14);
+    color: #ffb0b0;
+}
+
+.objective-entry__badge.is-elite {
+    border-color: rgba(255, 190, 90, 0.55);
+    background: rgba(255, 190, 90, 0.14);
+    color: #ffd7a3;
+}
+
+.objective-entry__badge.is-shrine {
+    border-color: rgba(120, 255, 220, 0.55);
+    background: rgba(120, 255, 220, 0.14);
+    color: #bcfff1;
+}
+
+.objective-entry__badge.is-chest {
+    border-color: rgba(255, 220, 120, 0.55);
+    background: rgba(255, 220, 120, 0.14);
+    color: #ffe9b0;
+}
+
+.objective-entry__badge.is-ambush {
+    border-color: rgba(255, 145, 90, 0.55);
+    background: rgba(255, 145, 90, 0.14);
+    color: #ffc4a3;
+}
+
+.objective-entry__badge.is-approach {
+    border-color: rgba(255, 190, 90, 0.55);
+    background: rgba(255, 190, 90, 0.14);
+    color: #ffd7a3;
+}
+
+.objective-entry__badge.is-exit {
+    border-color: rgba(120, 220, 255, 0.55);
+    background: rgba(120, 220, 255, 0.14);
+    color: #b9f0ff;
+}
+
+.objective-entry.is-danger {
+    box-shadow: inset 0 0 0 1px rgba(255, 110, 110, 0.18);
+}
+
+.objective-entry.is-warning {
+    box-shadow: inset 0 0 0 1px rgba(255, 190, 90, 0.18);
+}
+
+.objective-entry.is-support {
+    box-shadow: inset 0 0 0 1px rgba(120, 220, 255, 0.18);
+}
+
+.objective-entry__status {
+    color: var(--color-gold);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    white-space: nowrap;
+}
+
+.objective-entry__status.is-complete {
+    color: #7dffb3;
+}
+
+.objective-entry__progress {
+    margin-top: 8px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.objective-entry__progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #987b47 0%, #d5bb87 100%);
+}
+
+.objective-entry__progress-fill.is-complete {
+    background: linear-gradient(90deg, #2fb870 0%, #7dffb3 100%);
+}
+
+.objective-entry__hint {
+    margin-top: 7px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 11px;
+}
+
+/* ---- XP Bar ---- */
+#xp-bar-container {
+    width: 100%;
+    height: 10px;
+    background: var(--bg-dark-medium);
+    border-top: 2px solid var(--border-default);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+}
+
+#xp-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--color-xp);
+    transition: width var(--transition-default);
+}
+
+#xp-text {
+    position: absolute;
+    top: -15px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--color-xp);
+    font-size: 12px;
+    font-weight: bold;
+    text-shadow: 1px 1px 1px black;
+}
+
+/* ---- Menu Bar (bottom-right HUD buttons) ---- */
+#menu-bar {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    display: none;
+    gap: var(--spacing-sm);
+    pointer-events: auto;
+    z-index: var(--z-hud);
+}
+
+.hud-menu-btn {
+    height: 24px;
+    padding: 0 8px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--color-white);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+    transition: background var(--transition-default);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    text-transform: uppercase;
+}
+
+.hud-menu-btn:hover {
+    background: var(--bg-surface-mid);
+    border-color: var(--color-gold);
+}
+
+/* General menu button (used in esc-menu, etc.) */
+.menu-btn {
+    background: var(--bg-dark);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--color-white);
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background var(--transition-default), border-color var(--transition-default), transform var(--transition-fast), box-shadow var(--transition-default);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    text-align: center;
+}
+
+.menu-btn:hover {
+    background: var(--bg-surface-mid);
+    border-color: var(--color-gold);
+    box-shadow: 0 0 0 1px rgba(255, 215, 0, 0.12);
+}
+
+.menu-btn:active,
+.hud-menu-btn:active {
+    transform: translateY(1px);
+}

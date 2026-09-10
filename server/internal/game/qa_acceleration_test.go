@@ -1,0 +1,387 @@
+package game
+
+import (
+	"testing"
+	"time"
+)
+
+func TestQAGuaranteedLootIsConsumedByNextEnemyKill(t *testing.T) {
+	w := NewWorld(nil)
+	player := &Entity{
+		ID:            "player-qa-loot",
+		Type:          TypePlayer,
+		SubType:       "Wizard",
+		Level:         MaxPlayerLevel,
+		MaxExperience: 1_000_000,
+		Health:        100,
+		MaxHealth:     100,
+		Inventory:     make([]Item, MaxInventorySize),
+		Equipment:     make(map[string]Item),
+		Cooldowns:     make(map[string]time.Time),
+		SkillRunes:    make(map[string]string),
+		TalentRanks:   make(map[string]int),
+	}
+	enemy := &Entity{
+		ID:        "qa-loot-enemy",
+		Type:      TypeEnemy,
+		SubType:   "Skeleton",
+		Level:     1,
+		Health:    10,
+		MaxHealth: 10,
+		State:     "IDLE",
+		X:         20,
+		Z:         20,
+	}
+	w.AddEntity(player)
+	w.AddEntity(enemy)
+
+	if !w.ArmPlayerQAGuaranteedLoot(player.ID) {
+		t.Fatal("expected QA loot flag to arm")
+	}
+	w.handleDeath(enemy, player, nil)
+	if player.QAGuaranteedLoot {
+		t.Fatal("expected QA loot flag to be consumed synchronously on kill")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		w.Mu.RLock()
+		found := false
+		for _, entity := range w.Entities {
+			if entity.Type == TypeLoot && entity.LootItem != nil &&
+				entity.LootItem.Type != ItemMaterial && entity.LootItem.Type != ItemRelic &&
+				entity.LootItem.Type != ItemGem {
+				found = true
+				break
+			}
+		}
+		w.Mu.RUnlock()
+		if found {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("expected the armed enemy kill to create a normal loot entity")
+}
+
+func TestDungeonKillKeepsGeneratedLootInsideItsInstance(t *testing.T) {
+	w := NewWorld(nil)
+	instanceID := "dungeon_qa_loot_scope"
+	layout := DungeonLayout{Rooms: []DungeonRoom{
+		{X: 0, Z: 0, Width: 40, Height: 40, Type: "start"},
+		{X: 100, Z: 0, Width: 40, Height: 40, Type: "normal"},
+	}}
+	player := &Entity{
+		ID:               "player-dungeon-loot",
+		Type:             TypePlayer,
+		SubType:          "Wizard",
+		Level:            40,
+		InstanceID:       instanceID,
+		State:            "IDLE",
+		MaxExperience:    1_000_000,
+		Inventory:        make([]Item, MaxInventorySize),
+		Equipment:        make(map[string]Item),
+		Cooldowns:        make(map[string]time.Time),
+		SkillRunes:       make(map[string]string),
+		TalentRanks:      make(map[string]int),
+		QAGuaranteedLoot: true,
+	}
+	enemy := &Entity{
+		ID:         "dungeon-loot-enemy",
+		Type:       TypeEnemy,
+		SubType:    "Skeleton",
+		Level:      40,
+		InstanceID: instanceID,
+		State:      "IDLE",
+		Health:     10,
+		MaxHealth:  10,
+		X:          100,
+		Z:          0,
+		SpawnX:     100,
+		SpawnZ:     0,
+	}
+	w.AddEntity(player)
+	w.AddEntity(enemy)
+	w.InstanceLayouts[instanceID] = &DungeonInstance{
+		ID:                instanceID,
+		Layout:            layout,
+		Difficulty:        DifficultyNormal,
+		DungeonType:       "verdant_bastion_catacombs",
+		RunLevel:          40,
+		RoomState:         NewDungeonRoomState(layout),
+		PlayerRoomSummary: map[string]DungeonRoomSummary{player.ID: {}},
+	}
+
+	w.handleDeath(enemy, player, nil)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		w.Mu.RLock()
+		for _, entity := range w.Entities {
+			if entity.Type == TypeLoot && entity.LootItem != nil && entity.LootItem.Type != ItemMaterial && entity.LootItem.Type != ItemRelic {
+				lootInstanceID := entity.InstanceID
+				roomCleared := w.InstanceLayouts[instanceID].RoomState.Rooms[1].Cleared
+				w.Mu.RUnlock()
+				if lootInstanceID != instanceID {
+					t.Fatalf("expected dungeon loot in %s, got %q", instanceID, lootInstanceID)
+				}
+				if !roomCleared {
+					t.Fatal("expected the production death path to clear the defeated encounter room")
+				}
+				return
+			}
+		}
+		w.Mu.RUnlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("expected the deterministic dungeon kill to generate scoped loot")
+}
+
+func TestQAGuaranteedLootMakesNextAcceptedBasicAttackDeterministic(t *testing.T) {
+	w := NewWorld(nil)
+	player := &Entity{
+		ID:               "player-qa-combat",
+		Type:             TypePlayer,
+		SubType:          "Wizard",
+		Damage:           10,
+		AttackCooldown:   time.Millisecond,
+		Inventory:        make([]Item, MaxInventorySize),
+		Equipment:        make(map[string]Item),
+		Cooldowns:        make(map[string]time.Time),
+		SkillRunes:       make(map[string]string),
+		TalentRanks:      make(map[string]int),
+		MaxExperience:    100,
+		QAGuaranteedLoot: true,
+	}
+	enemy := &Entity{
+		ID:        "qa-combat-enemy",
+		Type:      TypeEnemy,
+		SubType:   "Skeleton",
+		Health:    150,
+		MaxHealth: 150,
+		State:     "IDLE",
+		X:         2,
+	}
+	w.AddEntity(player)
+	w.AddEntity(enemy)
+
+	if _, ok := w.PerformAttack(player.ID, enemy.ID); !ok {
+		t.Fatal("expected a real in-range basic attack to be accepted")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		got := w.GetEntity(enemy.ID)
+		if got == nil {
+			t.Fatal("enemy disappeared before its death state could be observed")
+		}
+		got.Mu.RLock()
+		dead := got.State == "DEAD"
+		got.Mu.RUnlock()
+		if dead {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("expected the allowlisted QA attack to finish the enemy")
+}
+
+func TestNearDeathAnimationQARemovesOwnedEffectsAndBlocksRecovery(t *testing.T) {
+	w := NewWorld(nil)
+	// NewWorld populates randomized overworld enemies. Keep the actors under
+	// test in their own instance so nearest-hostile selection is deterministic,
+	// while still using the real grid, range, swing and damage/death paths.
+	const instanceID = "qa-near-death-fixture"
+	player := &Entity{
+		ID:                          "player-qa-near-death",
+		InstanceID:                  instanceID,
+		Type:                        TypePlayer,
+		SubType:                     "Cleric",
+		Health:                      90,
+		MaxHealth:                   90,
+		Mana:                        10,
+		MaxMana:                     100,
+		Defense:                     100,
+		Cooldowns:                   make(map[string]time.Time),
+		InvulnerableEndTime:         time.Now().Add(time.Minute),
+		QAWaypointProtectionEndTime: time.Now().Add(5 * time.Minute),
+	}
+	enemy := &Entity{
+		ID:             "qa-near-death-enemy",
+		InstanceID:     instanceID,
+		Type:           TypeEnemy,
+		SubType:        "Skeleton",
+		Health:         100,
+		MaxHealth:      100,
+		Damage:         1,
+		State:          "IDLE",
+		X:              40,
+		AttackCooldown: time.Millisecond,
+		Threat:         map[string]float64{"prior-qa-player": 100_000},
+	}
+	ownedZone := &Entity{
+		ID:      "owned-healing-zone",
+		Type:    TypeProjectile,
+		SubType: "ZoneHoly",
+		OwnerID: player.ID,
+	}
+	ownedSeraph := &Entity{
+		ID:      "owned-seraph",
+		Type:    TypeNPC,
+		SubType: "AvengingSeraph",
+		OwnerID: player.ID,
+	}
+	unrelatedZone := &Entity{
+		ID:      "other-player-zone",
+		Type:    TypeProjectile,
+		SubType: "ZoneHoly",
+		OwnerID: "another-player",
+	}
+	w.AddEntity(player)
+	w.AddEntity(ownedZone)
+	w.AddEntity(ownedSeraph)
+	w.AddEntity(unrelatedZone)
+	w.AddEntity(enemy)
+	// Retain an explicit closer overworld enemy: without instance isolation its
+	// ordinary ~1.48s swing replaces the fixture's 0.35ms swing and fails this
+	// test's one-second wait. Merely increasing the wait would test the wrong hit.
+	w.spawnOverworldEnemyAt("near-death-ambient-distractor", "Skeleton", .5, 0, 1)
+	attacks := make(chan AttackEvent, 2)
+	damage := make(chan DamageEvent, 2)
+	w.OnEvent = func(kind string, payload interface{}) {
+		if event, ok := payload.(AttackEvent); kind == "attack" && ok {
+			attacks <- event
+		}
+		if event, ok := payload.(DamageEvent); kind == "damage" && ok {
+			damage <- event
+		}
+	}
+
+	if !w.PreparePlayerForAnimationQA(player.ID, false, false, true) {
+		t.Fatal("expected near-death animation readiness reset")
+	}
+	if player.Health != 1 {
+		t.Fatalf("expected near-death health to remain at one, got %d", player.Health)
+	}
+	if got := applyHealingReceived(player, player.MaxHealth); got != 0 {
+		t.Fatalf("expected retained healing to be suppressed, got %d", got)
+	}
+	if w.GetEntity(ownedZone.ID) != nil || w.GetEntity(ownedSeraph.ID) != nil {
+		t.Fatal("expected player-owned projectiles and summons to be removed")
+	}
+	if w.GetEntity(unrelatedZone.ID) == nil {
+		t.Fatal("expected another player's transient effect to remain")
+	}
+	enemy.Mu.RLock()
+	focusedThreat := enemy.Threat[player.ID]
+	priorThreat := enemy.Threat["prior-qa-player"]
+	enemy.Mu.RUnlock()
+	if focusedThreat <= priorThreat {
+		t.Fatalf("expected nearby hostile to focus the active QA character, got active=%v prior=%v", focusedThreat, priorThreat)
+	}
+	if !w.DisablePlayerQAProtection(player.ID) {
+		t.Fatal("expected waypoint protection to be disabled while the focused hostile approaches")
+	}
+	player.Mu.RLock()
+	deadOutsideMeleeRange := player.State == "DEAD"
+	player.Mu.RUnlock()
+	if deadOutsideMeleeRange {
+		t.Fatal("expected the normal melee range to remain authoritative")
+	}
+	select {
+	case attack := <-attacks:
+		t.Fatalf("out-of-range fixture or cross-instance hostile started an attack: %+v", attack)
+	default:
+	}
+
+	// Let the focused hostile finish its normal approach, then ask the same
+	// bounded command to exercise the real in-range attack and swing delay.
+	enemy.Mu.Lock()
+	oldEnemyX, oldEnemyZ := enemy.X, enemy.Z
+	enemy.X = 1
+	enemy.Z = 0
+	enemy.Mu.Unlock()
+	w.Grid.Update(enemy, oldEnemyX, oldEnemyZ)
+
+	// Simulate a mitigation edge being reapplied between readiness and the
+	// hostile swing. The release check must still take one real point of damage
+	// after explicit waypoint protection is gone.
+	player.Mu.Lock()
+	player.SanctuaryDamageReduction = true
+	player.SanctuaryEndTime = time.Now().Add(time.Minute)
+	player.Mu.Unlock()
+	if !w.DisablePlayerQAProtection(player.ID) {
+		t.Fatal("expected waypoint protection to be disabled")
+	}
+	select {
+	case attack := <-attacks:
+		if attack.SourceID != enemy.ID || attack.TargetID != player.ID {
+			t.Fatalf("wrong hostile selected for the real swing: %+v", attack)
+		}
+	default:
+		t.Fatal("expected the in-range fixture hostile to start its real swing")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		player.Mu.RLock()
+		dead := player.State == "DEAD"
+		player.Mu.RUnlock()
+		if dead {
+			select {
+			case hit := <-damage:
+				if hit.SourceID != enemy.ID || hit.TargetID != player.ID || hit.Amount != 1 {
+					t.Fatalf("expected one point of real fixture-hostile damage: %+v", hit)
+				}
+			default:
+				t.Fatal("death must follow the real hostile damage event")
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("expected the real hostile hit to complete the near-death check")
+}
+
+func TestQAWaypointProtectionIsIndependentOfGameplayInvulnerabilityAndHazards(t *testing.T) {
+	w := NewWorld(nil)
+	player := &Entity{
+		ID:          "player-qa-protection-isolation",
+		Type:        TypePlayer,
+		SubType:     "Wizard",
+		Health:      100,
+		MaxHealth:   100,
+		State:       "IDLE",
+		Cooldowns:   make(map[string]time.Time),
+		SkillRunes:  make(map[string]string),
+		TalentRanks: make(map[string]int),
+	}
+	w.AddEntity(player)
+
+	if _, ok := w.MovePlayerToQAWaypoint(player.ID, "combat"); !ok {
+		t.Fatal("expected combat waypoint protection")
+	}
+	minimumProtection := time.Now().Add(QAWaypointProtectionDuration - time.Second)
+	if player.QAWaypointProtectionEndTime.Before(minimumProtection) {
+		t.Fatalf("expected bounded waypoint protection, got %v", player.QAWaypointProtectionEndTime)
+	}
+
+	// Reproduce a short Phase-style gameplay window. It must not overwrite the
+	// longer release-QA protection timestamp.
+	player.InvulnerableEndTime = time.Now().Add(time.Second)
+	if player.QAWaypointProtectionEndTime.Before(minimumProtection) {
+		t.Fatal("gameplay invulnerability shortened waypoint protection")
+	}
+
+	player.X = -800
+	player.Z = -450
+	player.InvulnerableEndTime = time.Now().Add(-time.Second)
+	w.processHazardDamage(1.1, []*Entity{player})
+	if player.Health != player.MaxHealth {
+		t.Fatalf("protected QA player took environmental damage: %d/%d", player.Health, player.MaxHealth)
+	}
+
+	player.QAWaypointProtectionEndTime = time.Time{}
+	w.processHazardDamage(1.1, []*Entity{player})
+	if player.Health >= player.MaxHealth {
+		t.Fatal("ordinary hazard damage stayed disabled after QA protection ended")
+	}
+}

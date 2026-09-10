@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+*.archive.gz
+*.pem
+bot_data.json
+bug_reports.json
+coverage
+coverage.*
+deploy/
+logs/
+backups/
+node_modules/
+server
+eidolon-server
+cmd/loadtest/bot_data.json

@@ -1,0 +1,111 @@
+/* ============================================================
+   Eidolon Design Tokens
+   ============================================================
+   Single source of truth for colors, spacing, typography, and
+   z-index layering used across all UI modules.
+   ------------------------------------------------------------ */
+
+:root {
+    /* ---- Color Palette ---- */
+    --color-gold:           #d5bb87;
+    --color-gold-dim:       rgba(213, 187, 135, 0.5);
+    --color-white:          #eee;
+    --color-white-bright:   #fff;
+    --color-text-muted:     #acb6c4;
+    --color-text-dim:       #8a96a6;
+
+    /* Backgrounds */
+    --bg-panel:             rgba(17, 23, 32, 0.96);
+    --bg-panel-light:       rgba(0, 0, 0, 0.3);
+    --bg-dark:              rgba(0, 0, 0, 0.8);
+    --bg-dark-medium:       rgba(0, 0, 0, 0.7);
+    --bg-input:             #0d131d;
+    --bg-surface:           #202b3a;
+    --bg-surface-hover:     #303e50;
+    --bg-surface-active:    #37362f;
+    --bg-surface-mid:       rgba(37, 47, 61, 0.94);
+
+    /* Borders */
+    --border-default:       #394453;
+    --border-light:         #566171;
+    --border-heavy:         #4b5768;
+    --border-dim:           #283342;
+    --border-window-active: rgba(213, 187, 135, 0.65);
+
+    /* Health / Mana / XP fills */
+    --color-health-start:   #813440;
+    --color-health-end:     #bd5360;
+    --color-mana-start:     #294773;
+    --color-mana-end:       #456d9e;
+    --color-success:        #a5cbb0;
+    --color-xp:             #c3a46a;
+    --color-party-hp:       #d32f2f;
+
+    /* Class accent colors */
+    --color-fighter:        #ff4444;
+    --color-rogue:          #44ff44;
+    --color-wizard:         #4444ff;
+    --color-cleric:         #ffd700;
+
+    /* Auth buttons */
+    --color-login:          #4CAF50;
+    --color-login-hover:    #45a049;
+    --color-register:       #2196F3;
+    --color-register-hover: #1e88e5;
+
+    /* Mobile */
+    --color-mobile-attack:  rgba(139, 0, 0, 0.6);
+    --color-mobile-ability: rgba(0, 0, 139, 0.6);
+    --color-mobile-interact:rgba(0, 100, 0, 0.6);
+
+    /* Misc */
+    --color-warning:        #e6a23c;
+    --color-warning-border: #d48806;
+    --color-error:          #ff4444;
+    --color-debug:          #ff4444;
+
+    /* ---- Typography ---- */
+    --ui-scale:              1;
+    --font-primary:         'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    --font-display:         'Cinzel', serif;
+    --font-mono:            'Consolas', 'Courier New', monospace;
+
+    /* ---- Spacing ---- */
+    --spacing-xs:           2px;
+    --spacing-sm:           5px;
+    --spacing-md:           10px;
+    --spacing-lg:           15px;
+    --spacing-xl:           20px;
+    --spacing-2xl:          30px;
+
+    /* ---- Border Radius ---- */
+    --radius-sm:            2px;
+    --radius-md:            4px;
+    --radius-lg:            8px;
+    --radius-round:         50%;
+
+    /* ---- Shadows ---- */
+    --shadow-panel:         0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    --shadow-heavy:         0 0 30px rgba(0, 0, 0, 0.8);
+    --shadow-window-focused: 0 20px 45px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(213, 187, 135, 0.14);
+
+    /* ---- Z-Index Scale ---- */
+    --z-ui-layer:           10;
+    --z-start-screen:       20;
+    --z-mobile-ui:          50;
+    --z-hud:                100;
+    --z-window:             110;
+    --z-pause:              130;
+    --z-modal-backdrop:     140;
+    --z-modal:              150;
+    --z-tooltip:            200;
+    --z-game-timer:         105;
+    --z-debug:              10000;
+    --z-browser-warning:    20000;
+    --z-perf:               20000;
+    --z-world-map:          25000;
+
+    /* ---- Transitions ---- */
+    --transition-fast:      0.1s;
+    --transition-default:   0.2s;
+}

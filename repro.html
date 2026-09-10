@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23070a10'/%3E%3Cpath d='M32 7 49 18 45 45 32 57 19 45 15 18Z' fill='%2318202d' stroke='%23c6a15b' stroke-width='3'/%3E%3Cpath d='m22 21 10-7 10 7-7 11 8 13-11 7-11-7 8-13Z' fill='%235b456f' stroke='%23b8d5dc' stroke-width='2'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%23f0b85c'/%3E%3C/svg%3E" />
+    <title>Eidolon Repro Scene</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: #0b0e13;
+            color: #d7e4ff;
+            overflow: hidden;
+            font-family: "Consolas", "Courier New", monospace;
+        }
+        #repro-hud {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            padding: 10px 12px;
+            background: rgba(8, 12, 18, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            z-index: 10;
+            max-width: 420px;
+        }
+        #repro-hud .title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #f2f6ff;
+        }
+        #repro-hud .line {
+            font-size: 12px;
+            line-height: 1.4;
+            color: #bcd0ff;
+        }
+        #repro-controls {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .repro-btn {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(40, 56, 79, 0.95);
+            color: #eef4ff;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 12px;
+            text-align: left;
+        }
+        .repro-btn:hover {
+            background: rgba(58, 78, 109, 0.98);
+        }
+        #repro-readout {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #d9f2c7;
+            white-space: pre-line;
+        }
+        #repro-preview-window {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 320px;
+            background: rgba(12, 18, 26, 0.96);
+            border: 1px solid rgba(255, 215, 0, 0.45);
+            border-radius: 8px;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+            color: #dfe9ff;
+            display: none;
+            z-index: 20;
+            user-select: none;
+        }
+        #repro-preview-window .window-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+            color: #ffd700;
+            font-weight: bold;
+        }
+        #repro-preview-window .window-body {
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #bfd0ee;
+        }
+        #repro-window-close {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: #ffd700;
+            font: inherit;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        #perf-overlay {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            padding: 6px 8px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #e6f1ff;
+            font-size: 12px;
+            line-height: 1.4;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            white-space: pre;
+            z-index: 10;
+            display: none;
+            pointer-events: none;
+        }
+        #animation-gallery {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 30;
+            width: min(430px, calc(100vw - 24px));
+            max-height: calc(100vh - 24px);
+            overflow: auto;
+            padding: 14px;
+            border: 1px solid rgba(120, 205, 255, 0.42);
+            border-radius: 8px;
+            background: rgba(7, 12, 20, 0.94);
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        }
+        #animation-gallery[hidden] { display: none; }
+        body.gallery-mode #repro-hud { display: none; }
+        body.hazard-gallery-mode #repro-hud,
+        body.foliage-gallery-mode #repro-hud,
+        body.architecture-gallery-mode #repro-hud,
+        body.entrance-gallery-mode #repro-hud,
+        body.interior-gallery-mode #repro-hud,
+        body.encounter-gallery-mode #repro-hud,
+        body.terrain-gallery-mode #repro-hud {
+            display: none;
+        }
+        .gallery-title {
+            color: #f5f8ff;
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.04em;
+        }
+        .gallery-subtitle, #gallery-coverage {
+            margin-top: 5px;
+            color: #9fc3e8;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+            margin-top: 12px;
+        }
+        .gallery-field {
+            display: grid;
+            gap: 4px;
+            color: #b8cae1;
+            font-size: 11px;
+        }
+        .gallery-field select {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 5px;
+            background: #162336;
+            color: #eef5ff;
+            padding: 7px;
+            font: inherit;
+        }
+        .gallery-check {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-top: 10px;
+            color: #c9d9ec;
+            font-size: 11px;
+        }
+        .gallery-actions {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 7px;
+            margin-top: 11px;
+        }
+        .gallery-actions .repro-btn { text-align: center; padding: 7px 5px; }
+        #gallery-status {
+            margin-top: 11px;
+            padding: 8px;
+            border-radius: 5px;
+            background: rgba(37, 54, 76, 0.72);
+            color: #dcecff;
+            font-size: 11px;
+        }
+        #gallery-status[data-state="passed"] { color: #a9ffc0; background: rgba(26, 88, 49, 0.5); }
+        #gallery-status[data-state="failed"] { color: #ffacac; background: rgba(101, 30, 35, 0.58); }
+        #gallery-status[data-state="limited"] { color: #ffe29b; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./vendor/three/build/three.module.js",
+                "three/addons/": "./vendor/three/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="repro-hud">
+        <div class="title">Eidolon Repro Scene</div>
+        <div class="line">Drag to orbit. Scroll to zoom. Click ground to place marker.</div>
+        <div class="line">Params: ?perf=1&amp;instances=500&amp;instancing=1</div>
+        <div class="line">Keys: P toggle perf, G toggle grid, L toggle light, Esc close preview</div>
+        <div id="repro-controls">
+            <button id="repro-trigger-telegraph" class="repro-btn" type="button">Preview telegraph</button>
+            <button id="repro-trigger-loot" class="repro-btn" type="button">Preview loot burst</button>
+            <button id="repro-trigger-jump" class="repro-btn" type="button">Preview jump landing</button>
+            <button id="repro-trigger-room-verdant" class="repro-btn" type="button">Preview Verdant room</button>
+            <button id="repro-trigger-room-abyss" class="repro-btn" type="button">Preview Abyss room</button>
+            <button id="repro-trigger-room-molten" class="repro-btn" type="button">Preview Molten room</button>
+            <button id="repro-trigger-room-tempest" class="repro-btn" type="button">Preview Tempest room</button>
+            <button id="repro-toggle-window" class="repro-btn" type="button">Toggle menu chrome</button>
+            <button id="repro-reset-scene" class="repro-btn" type="button">Reset preview state</button>
+        </div>
+        <div id="repro-readout">Last pick: none</div>
+    </div>
+
+    <section id="animation-gallery" hidden aria-label="Animation and ability visual gallery">
+        <div class="gallery-title">ANIMATION / VFX GALLERY</div>
+        <div class="gallery-subtitle">Production assets and production effect routes. Use visible controls for deterministic local/remote, Low/High, cast, persistent, cleanup, and actor-state checks.</div>
+        <div id="gallery-coverage">Loading inventory…</div>
+        <div class="gallery-grid">
+            <label class="gallery-field">Player class<select id="gallery-class"></select></label>
+            <label class="gallery-field">Ability<select id="gallery-ability"></select></label>
+            <label class="gallery-field">Rune variant<select id="gallery-rune"></select></label>
+            <label class="gallery-field">Actor archetype<select id="gallery-actor"></select></label>
+            <label class="gallery-field">Actor state<select id="gallery-state"></select></label>
+            <label class="gallery-field">Graphics<select id="gallery-quality"><option value="high">High</option><option value="low">Low</option></select></label>
+            <label class="gallery-field">Procedural equipment<select id="gallery-equipment"></select></label>
+        </div>
+        <label class="gallery-check"><input id="gallery-remote" type="checkbox" checked /> Render a replicated actor beside the local actor</label>
+        <div class="gallery-actions">
+            <button id="gallery-cast" class="repro-btn" type="button">Cast</button>
+            <button id="gallery-persist" class="repro-btn" type="button">Persistent</button>
+            <button id="gallery-cleanup" class="repro-btn" type="button">Cleanup</button>
+            <button id="gallery-next" class="repro-btn" type="button">Next ability</button>
+            <button id="gallery-play-state" class="repro-btn" type="button">Play state</button>
+            <button id="gallery-run-all" class="repro-btn" type="button">Audit all variants</button>
+            <button id="gallery-equip" class="repro-btn" type="button">Equip item</button>
+            <button id="gallery-equip-all" class="repro-btn" type="button">Full loadout</button>
+            <button id="gallery-run-equipment" class="repro-btn" type="button">Audit all gear</button>
+        </div>
+        <div id="gallery-status" role="status" data-state="loading">Loading production actor assets…</div>
+    </section>
+
+    <div id="repro-preview-window" aria-hidden="true">
+        <div class="window-header">
+            <span>REPRO MENU PREVIEW</span>
+            <button id="repro-window-close" type="button" aria-label="Close preview window">×</button>
+        </div>
+        <div class="window-body">
+            This preview exists to sanity-check close chrome, non-selectable window text, and generic modal polish without booting the full game.
+        </div>
+    </div>
+
+    <div id="perf-overlay"></div>
+    <script type="module" src="./src/repro.js"></script>
+</body>
+</html>

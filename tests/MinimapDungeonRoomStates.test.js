@@ -1,0 +1,467 @@
+import { jest } from '@jest/globals';
+import { Minimap } from '../src/ui/Minimap.js';
+import { TOWN_SERVICE_POINTS } from '../src/ui/townServiceConfig.js';
+
+describe('Minimap dungeon room states', () => {
+    test('minimap and buff tooltip share the menu HUD stacking root', () => {
+        const layer = document.createElement('div');
+        layer.id = 'ui-layer';
+        document.body.appendChild(layer);
+        const minimap = new Minimap(200);
+        expect(minimap.wrapper.parentElement).toBe(layer);
+        expect(minimap.buffTooltip.parentElement).toBe(layer);
+    });
+
+    let fillRects;
+    let strokes;
+    let texts;
+    let ctx;
+    let buffListWrites;
+
+    beforeEach(() => {
+        fillRects = [];
+        strokes = [];
+        texts = [];
+        buffListWrites = [];
+        ctx = {
+            save: () => {},
+            restore: () => {},
+            clearRect: () => {},
+            beginPath: () => {},
+            arc: () => {},
+            clip: () => {},
+            fillRect: (...args) => fillRects.push({ fillStyle: ctx.fillStyle, args }),
+            moveTo: () => {},
+            lineTo: () => {},
+            stroke: () => strokes.push({ strokeStyle: ctx.strokeStyle, lineWidth: ctx.lineWidth }),
+            fill: () => {},
+            fillText: (...args) => texts.push({ fillStyle: ctx.fillStyle, args }),
+            translate: () => {},
+            rotate: () => {},
+            closePath: () => {},
+            set fillStyle(value) { this._fillStyle = value; },
+            get fillStyle() { return this._fillStyle; },
+            set strokeStyle(value) { this._strokeStyle = value; },
+            get strokeStyle() { return this._strokeStyle; },
+            set lineWidth(value) { this._lineWidth = value; },
+            get lineWidth() { return this._lineWidth; },
+            font: '',
+            textAlign: '',
+            textBaseline: ''
+        };
+
+        document.body.innerHTML = '';
+        const originalCreateElement = document.createElement.bind(document);
+        jest.spyOn(document, 'createElement').mockImplementation((tagName) => {
+            const el = originalCreateElement(tagName);
+            if (tagName === 'canvas') {
+                el.getContext = () => ctx;
+            }
+            return el;
+        });
+
+        const originalInnerHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+        jest.spyOn(Element.prototype, 'appendChild');
+        Object.defineProperty(Element.prototype, 'innerHTML', {
+            configurable: true,
+            get() {
+                return originalInnerHTMLDescriptor?.get ? originalInnerHTMLDescriptor.get.call(this) : this.textContent;
+            },
+            set(value) {
+                if (this.id === 'minimap-buff-list') {
+                    buffListWrites.push(value);
+                }
+                if (originalInnerHTMLDescriptor?.set) {
+                    originalInnerHTMLDescriptor.set.call(this, value);
+                    return;
+                }
+                this.textContent = value;
+            }
+        });
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    test('renders dungeon room overlays and objective marker colors', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 1,
+                objectiveRoomIndex: 2,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: false },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'elite', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'boss', explored: false, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 50, z: 0 }, id: 'player-1' }, []);
+
+        expect(fillRects.some((entry) => entry.fillStyle === 'rgba(90, 160, 255, 0.18)')).toBe(true);
+        expect(fillRects.some((entry) => entry.fillStyle === 'rgba(255, 190, 90, 0.18)')).toBe(true);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 110, 110, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Boss'))).toBe(true);
+    });
+
+    test('renders boss objective rooms with a distinct boss marker', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 1,
+                objectiveRoomIndex: 2,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'elite', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'boss', explored: true, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 50, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 110, 110, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Boss'))).toBe(true);
+    });
+
+    test('renders boss-now label when the player is already in the active boss room', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 2,
+                objectiveRoomIndex: 2,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'elite', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'boss', explored: true, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 100, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 110, 110, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Boss Now'))).toBe(true);
+    });
+
+    test('renders elite objective rooms with a distinct elite marker', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 1,
+                objectiveRoomIndex: 2,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'normal', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'elite', explored: true, cleared: false },
+                    { index: 3, x: 150, z: 0, width: 40, height: 40, type: 'boss', explored: false, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 50, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 190, 90, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Elite'))).toBe(true);
+    });
+
+    test('renders a preview marker for the next uncleared dungeon beat after the current objective', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 0,
+                objectiveRoomIndex: 1,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'normal', hook: 'chest', explored: true, cleared: false },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'elite', hook: 'elite_ambush', explored: false, cleared: false },
+                    { index: 3, x: 150, z: 0, width: 40, height: 40, type: 'normal', hook: 'shrine', explored: false, cleared: false },
+                    { index: 4, x: 200, z: 0, width: 40, height: 40, type: 'boss', explored: false, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 145, 90, 0.55)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Next Ambush'))).toBe(true);
+    });
+
+    test('renders reward and recovery room fills from shared room-role metadata', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 0,
+                objectiveRoomIndex: 1,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', roomRole: 'entry', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'normal', roomRole: 'reward', explored: true, cleared: false },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'normal', roomRole: 'recovery', explored: false, cleared: false },
+                    { index: 3, x: 150, z: 0, width: 40, height: 40, type: 'boss', roomRole: 'boss', explored: false, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+
+        expect(fillRects.some((entry) => entry.fillStyle === 'rgba(255, 220, 120, 0.12)')).toBe(true);
+        expect(fillRects.some((entry) => entry.fillStyle === 'rgba(120, 255, 220, 0.12)')).toBe(true);
+    });
+
+    test('renders boss approach rooms with approach labels and pressure coloring', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 2,
+                objectiveRoomIndex: 3,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'elite', hook: 'elite_ambush', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'normal', hook: 'shrine', explored: true, cleared: true },
+                    { index: 3, x: 150, z: 0, width: 40, height: 40, type: 'normal', pacing: 'boss_approach', explored: true, cleared: false },
+                    { index: 4, x: 200, z: 0, width: 40, height: 40, type: 'boss', explored: false, cleared: false }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 100, z: 0 }, id: 'player-1' }, []);
+
+        expect(fillRects.some((entry) => entry.fillStyle === 'rgba(255, 180, 90, 0.12)')).toBe(true);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 190, 90, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Approach'))).toBe(true);
+    });
+
+    test('renders a distinct exit marker when the dungeon objective is complete', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 2,
+                objectiveRoomIndex: -1,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 40, height: 40, type: 'start', explored: true, cleared: true },
+                    { index: 1, x: 50, z: 0, width: 40, height: 40, type: 'normal', explored: true, cleared: true },
+                    { index: 2, x: 100, z: 0, width: 40, height: 40, type: 'boss', explored: true, cleared: true }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 100, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(120, 220, 255, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Exit'))).toBe(true);
+    });
+
+    test('renders active buff icons to the left of the minimap and shows tooltip details on hover', () => {
+        const minimap = new Minimap(200);
+        const activeBuffs = [
+            {
+                id: 'sanctuary',
+                name: 'Sanctuary',
+                icon: '🛡️',
+                detail: '25% DR from shrine blessing',
+                remainingSeconds: 7.4,
+                durationSeconds: 8
+            },
+            {
+                id: 'bleed',
+                name: 'Bleeding',
+                icon: '🩸',
+                detail: '2 bleed stacks',
+                remainingSeconds: 5.0,
+                durationSeconds: 8,
+                isDebuff: true
+            },
+            {
+                id: 'blessing_zeal',
+                name: 'Blessing of Zeal',
+                icon: '✨',
+                detail: '+35% damage and healing',
+                remainingSeconds: 11.4,
+                durationSeconds: 12
+            }
+        ];
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => null,
+            getActiveBuffs: () => activeBuffs,
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+
+        const wrapper = document.getElementById('minimap-hud');
+        const buffList = document.getElementById('minimap-buff-list');
+        const tooltip = document.getElementById('minimap-buff-tooltip');
+        const buffRows = buffList?.querySelectorAll('.minimap-buff-row');
+        const topRowIcons = buffRows?.[0]?.querySelectorAll('.minimap-buff-icon');
+        const bottomRowIcons = buffRows?.[1]?.querySelectorAll('.minimap-buff-icon');
+        const icon = topRowIcons?.[0];
+
+        expect(wrapper).not.toBeNull();
+        expect(wrapper.firstElementChild?.id).toBe('minimap-buff-list');
+        expect(buffRows).toHaveLength(2);
+        expect(topRowIcons).toHaveLength(2);
+        expect(bottomRowIcons).toHaveLength(1);
+        expect(buffRows[0].dataset.rowType).toBe('buffs');
+        expect(buffRows[1].dataset.rowType).toBe('debuffs');
+        expect(icon).not.toBeNull();
+        expect(topRowIcons[0].textContent).toContain('🛡️');
+        expect(topRowIcons[1].textContent).toContain('✨');
+        expect(bottomRowIcons[0].textContent).toContain('🩸');
+        expect(bottomRowIcons[0].className).toContain('is-debuff');
+        expect(buffListWrites.length).toBeGreaterThan(0);
+
+        icon.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 120, clientY: 60 }));
+        expect(tooltip.style.display).toBe('block');
+        expect(tooltip.textContent).toContain('Sanctuary');
+        expect(tooltip.textContent).toContain('7.4s');
+        expect(tooltip.textContent).toContain('25% DR from shrine blessing');
+
+        icon.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+        expect(tooltip.style.display).toBe('none');
+
+        const writesBeforeBuffChange = buffListWrites.length;
+        activeBuffs[0].remainingSeconds = 6.9;
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+        expect(buffListWrites.length).toBeGreaterThan(writesBeforeBuffChange);
+    });
+
+    test('uses exact canonical town-service anchor positions for minimap markers', () => {
+        expect(TOWN_SERVICE_POINTS).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: 'quest-giver', label: 'Quest Giver', x: -20, z: 200 }),
+            expect.objectContaining({ id: 'forge', label: 'Forge', x: -28, z: 218 }),
+            expect.objectContaining({ id: 'stash', label: 'Stash', x: 0, z: 185 }),
+            expect.objectContaining({ id: 'trading-house', label: 'Trading House', x: -22, z: 185 }),
+            expect.objectContaining({ id: 'vendor-repair', label: 'Vendor / Repair', x: 22.5, z: 200 }),
+            expect.objectContaining({ id: 'dungeon-guide', label: 'Dungeon Guide', x: 0, z: 240 })
+        ]));
+    });
+
+    test('renders named town-service markers on the minimap when the player is in town', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => null,
+            getActiveBuffs: () => ([]),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 200 }, id: 'player-1' }, []);
+
+        expect(texts.some((entry) => String(entry.args[0]).includes('Quest Giver'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Stash'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Forge'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Trading House'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Vendor / Repair'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('Dungeon Guide'))).toBe(true);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 213, 106, 0.95)')).toBe(true);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(101, 186, 255, 0.95)')).toBe(true);
+    });
+
+    test('renders starter-route services in onboarding order and highlights forge alongside the quest marker', () => {
+        const minimap = new Minimap(200);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => null,
+            getActiveBuffs: () => ([]),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 200 }, id: 'player-1' }, []);
+
+        const labels = texts.map((entry) => String(entry.args[0]));
+        const questIndex = labels.findIndex((label) => label.includes('Quest Giver'));
+        const forgeIndex = labels.findIndex((label) => label.includes('Forge'));
+        const stashIndex = labels.findIndex((label) => label.includes('Stash'));
+        const vendorIndex = labels.findIndex((label) => label.includes('Vendor / Repair'));
+
+        expect(questIndex).toBeLessThan(forgeIndex);
+        expect(forgeIndex).toBeLessThan(stashIndex);
+        expect(stashIndex).toBeLessThan(vendorIndex);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 155, 74, 0.95)')).toBe(true);
+    });
+
+    test('renders canonical walk rects and join markers when dungeon debug overlay is enabled', () => {
+        const minimap = new Minimap(200);
+        minimap.setDungeonDebugOverlayEnabled(true);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 0,
+                objectiveRoomIndex: 1,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 80, height: 80, type: 'start', explored: true, cleared: false },
+                    { index: 1, x: 80, z: -120, width: 120, height: 120, type: 'boss', explored: true, cleared: false }
+                ]
+            }),
+            getDungeonDebugOverlayData: () => ({
+                walkRects: [
+                    { x: 0, z: 0, width: 80, height: 80, kind: 'room' },
+                    { x: 0, z: -60, width: 40, height: 40, kind: 'corridor' },
+                    { x: 40, z: -60, width: 80, height: 40, kind: 'corridor' },
+                    { x: 80, z: -90, width: 40, height: 60, kind: 'corridor' },
+                    { x: 80, z: -120, width: 120, height: 120, kind: 'room' }
+                ],
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 80, height: 80, type: 'start' },
+                    { index: 1, x: 80, z: -120, width: 120, height: 120, type: 'boss' }
+                ],
+                corridors: [
+                    { fromRoomIndex: 0, toRoomIndex: 1, walkRectIndices: [1, 2, 3] }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(120, 220, 255, 0.72)')).toBe(true);
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 180, 90, 0.82)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('DBG WALK'))).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('J1'))).toBe(true);
+    });
+
+    test('highlights risky boss approach segments when the final corridor segment is shorter than half corridor width', () => {
+        const minimap = new Minimap(200);
+        minimap.setDungeonDebugOverlayEnabled(true);
+        minimap.gameEngine = {
+            getDungeonRoomSummary: () => ({
+                currentRoomIndex: 0,
+                objectiveRoomIndex: 1,
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 100, height: 100, type: 'start', explored: true, cleared: false },
+                    { index: 1, x: 80, z: -180, width: 180, height: 180, type: 'boss', explored: true, cleared: false }
+                ]
+            }),
+            getDungeonDebugOverlayData: () => ({
+                walkRects: [
+                    { x: 0, z: 0, width: 100, height: 100, kind: 'room', roomIndex: 0 },
+                    { x: 80, z: -180, width: 180, height: 180, kind: 'room', roomIndex: 1 },
+                    { x: 0, z: -60, width: 40, height: 60, kind: 'corridor' },
+                    { x: 40, z: -70, width: 120, height: 40, kind: 'corridor' },
+                    { x: 80, z: -98, width: 40, height: 16, kind: 'corridor' }
+                ],
+                rooms: [
+                    { index: 0, x: 0, z: 0, width: 100, height: 100, type: 'start' },
+                    { index: 1, x: 80, z: -180, width: 180, height: 180, type: 'boss' }
+                ],
+                corridors: [
+                    { fromRoomIndex: 0, toRoomIndex: 1, width: 40, walkRectIndices: [2, 3, 4] }
+                ]
+            }),
+            uiManager: { partyData: { members: [] } }
+        };
+
+        minimap.update({ position: { x: 0, z: 0 }, id: 'player-1' }, []);
+
+        expect(strokes.some((entry) => entry.strokeStyle === 'rgba(255, 90, 90, 0.95)')).toBe(true);
+        expect(texts.some((entry) => String(entry.args[0]).includes('RISK'))).toBe(true);
+    });
+});

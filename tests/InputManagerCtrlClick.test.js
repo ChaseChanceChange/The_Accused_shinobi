@@ -1,0 +1,179 @@
+import { jest } from '@jest/globals';
+import * as THREE from 'three';
+import { InputManager } from '../src/core/InputManager.js';
+
+describe('InputManager ctrl-click propagation', () => {
+    let addEventListenerSpy;
+    let removeEventListenerSpy;
+
+    beforeEach(() => {
+        addEventListenerSpy = jest.spyOn(window, 'addEventListener');
+        removeEventListenerSpy = jest.spyOn(window, 'removeEventListener');
+    });
+
+    afterEach(() => {
+        addEventListenerSpy.mockRestore();
+        removeEventListenerSpy.mockRestore();
+    });
+
+    test('left click forwards the original mouse event to onClick subscribers', () => {
+        const manager = new InputManager({}, {});
+        const callback = jest.fn();
+        manager.subscribe('onClick', callback);
+
+        manager.onMouseDown({
+            target: { tagName: 'CANVAS' },
+            button: 0,
+            ctrlKey: true,
+            clientX: 100,
+            clientY: 80
+        });
+
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback.mock.calls[0][0]).toEqual(expect.objectContaining({
+            ctrlKey: true,
+            button: 0
+        }));
+        expect(manager.mouse).toEqual(expect.objectContaining({
+            x: (100 / window.innerWidth) * 2 - 1,
+            y: -(80 / window.innerHeight) * 2 + 1
+        }));
+        expect(manager.pointerOverCanvas).toBe(true);
+        manager.dispose();
+    });
+
+    test('right click forwards the original mouse event to onRightClick subscribers', () => {
+        const manager = new InputManager(new THREE.PerspectiveCamera(), {});
+        const callback = jest.fn();
+        manager.subscribe('onRightClick', callback);
+
+        manager.onMouseDown({
+            target: { tagName: 'CANVAS' },
+            button: 2,
+            ctrlKey: false
+        });
+
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback.mock.calls[0][0]).toEqual(expect.objectContaining({
+            button: 2
+        }));
+        manager.dispose();
+    });
+
+    test('ground intersection can be resolved directly from click coordinates without a prior mousemove', () => {
+        const manager = new InputManager(new THREE.PerspectiveCamera(), {});
+        manager.mouse.set(-0.9, -0.9);
+        manager.raycaster.setFromCamera = jest.fn();
+        manager.raycaster.ray.intersectPlane = jest.fn((plane, target) => {
+            target.set(5, 0, 7);
+            return target;
+        });
+
+        const point = manager.getGroundIntersectionFromEvent({
+            clientX: window.innerWidth * 0.75,
+            clientY: window.innerHeight * 0.25
+        });
+
+        expect(manager.raycaster.setFromCamera).toHaveBeenCalledWith(
+            expect.objectContaining({ x: 0.5, y: 0.5 }),
+            manager.camera
+        );
+        expect(point).toEqual(expect.objectContaining({ x: 5, y: 0, z: 7 }));
+        manager.dispose();
+    });
+
+    test('meta key state is tracked so mac-style jump holds can continue queueing', () => {
+        const manager = new InputManager({}, {});
+
+        manager.onKeyDown({ key: 'Meta', code: 'MetaLeft' });
+        expect(manager.keys.meta).toBe(true);
+
+        manager.onKeyUp({ key: 'Meta', code: 'MetaLeft' });
+        expect(manager.keys.meta).toBe(false);
+        manager.dispose();
+    });
+
+    test('Space activates menu buttons without also casting the gameplay ability', () => {
+        const manager = new InputManager({}, {});
+        const callback = jest.fn();
+        manager.subscribe('onSpace', callback);
+        const button = document.createElement('button');
+        document.body.append(button);
+        button.focus();
+        manager.onKeyDown({ key: ' ', code: 'Space' });
+        expect(callback).not.toHaveBeenCalled();
+        button.blur();
+        manager.onKeyDown({ key: ' ', code: 'Space' });
+        expect(callback).toHaveBeenCalledTimes(1);
+        button.remove();
+        manager.dispose();
+    });
+
+    test.each(['button', 'select', 'a'])('Enter and Space stay with a focused %s control', (tag) => {
+        const manager = new InputManager({}, {});
+        const chat = jest.fn();
+        const ability = jest.fn();
+        manager.subscribe('onChat', chat);
+        manager.subscribe('onSpace', ability);
+        const control = document.createElement(tag);
+        if (tag === 'a') control.href = '#help';
+        document.body.append(control);
+        control.focus();
+        manager.onKeyDown({ key: 'Enter', code: 'Enter' });
+        manager.onKeyDown({ key: ' ', code: 'Space' });
+        expect(chat).not.toHaveBeenCalled();
+        expect(ability).not.toHaveBeenCalled();
+        control.blur();
+        manager.onKeyDown({ key: 'Enter', code: 'Enter' });
+        expect(chat).toHaveBeenCalledTimes(1);
+        control.remove();
+        manager.dispose();
+    });
+
+    test('F2 forwards dungeon debug overlay toggles to subscribers', () => {
+        const manager = new InputManager({}, {});
+        const callback = jest.fn();
+        manager.subscribe('onDebugOverlay', callback);
+
+        manager.onKeyDown({ key: 'F2', code: 'F2' });
+
+        expect(callback).toHaveBeenCalledTimes(1);
+        manager.dispose();
+    });
+
+    test('window blur clears held modifier state so ctrl jump does not stick after focus loss', () => {
+        const manager = new InputManager({}, {});
+
+        manager.onKeyDown({ key: 'Control', code: 'ControlLeft' });
+        manager.primaryMouseButtonDown = true;
+        manager.isMouseDown = true;
+        manager.pointerOverCanvas = true;
+
+        window.dispatchEvent(new Event('blur'));
+
+        expect(manager.keys.control).toBe(false);
+        expect(manager.primaryMouseButtonDown).toBe(false);
+        expect(manager.isMouseDown).toBe(false);
+        expect(manager.pointerOverCanvas).toBe(false);
+        manager.dispose();
+    });
+
+    test('tracks whether the pointer is over the game canvas', () => {
+        const manager = new InputManager({}, {});
+
+        manager.onMouseMove({
+            target: { tagName: 'CANVAS' },
+            clientX: 40,
+            clientY: 60
+        });
+        expect(manager.pointerOverCanvas).toBe(true);
+
+        manager.onMouseMove({
+            target: { tagName: 'BUTTON' },
+            clientX: 50,
+            clientY: 70
+        });
+        expect(manager.pointerOverCanvas).toBe(false);
+        manager.dispose();
+    });
+});

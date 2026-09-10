@@ -1,0 +1,155 @@
+/* ============================================================
+   Skill Tree
+   ============================================================ */
+
+#skill-tree-window {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    width: min(900px, calc(100vw - 24px));
+    height: fit-content;
+    min-height: min(540px, calc(100vh - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-panel);
+    display: none;
+    flex-direction: column;
+    z-index: var(--z-hud);
+    pointer-events: auto;
+    color: var(--color-white);
+    user-select: none;
+    overflow: hidden;
+}
+
+.skill-tree-header {
+    background: var(--bg-surface);
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--border-default);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+    color: var(--color-gold);
+    font-size: 1rem;
+}
+
+#skill-tree-window button:not(.close-btn) {
+    padding: 7px 10px;
+    background: var(--bg-surface);
+    color: var(--color-white);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+#skill-tree-window button:not(.close-btn):hover { background: var(--bg-surface-hover); border-color: var(--color-gold); }
+#skill-tree-window button:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
+#skill-tree-window h2 { font-size: 1.25rem; font-weight: 500; letter-spacing: 0.02em; }
+
+.skill-tree-content {
+    flex-grow: 1;
+    min-height: 0;
+    padding: var(--spacing-md);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.skill-tree-empty-state {
+    text-align: center;
+    color: var(--color-text-muted);
+    margin-top: 50px;
+}
+
+.skill-tier-1-container {
+    border: 1px solid var(--border-default);
+    padding: var(--spacing-lg);
+    background: var(--bg-panel-light);
+    margin-bottom: var(--spacing-md);
+}
+
+.skill-branches-container {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-grow: 1;
+}
+
+/* Responsive skill tree */
+@media (max-width: 950px), (max-height: 750px) {
+    #skill-tree-window {
+        width: calc(100vw - 24px);
+        height: calc(100vh - 24px);
+    }
+
+    .skill-branches-container {
+        flex-direction: column;
+    }
+}
+
+.skill-branch {
+    flex: 1;
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border-dim);
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.skill-branch-title {
+    text-align: center;
+    color: var(--color-gold);
+    font-weight: bold;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.skill-node {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-heavy);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-default);
+    position: relative;
+}
+
+.skill-node:hover {
+    border-color: var(--color-gold);
+    background: var(--bg-surface-hover);
+}
+
+.skill-node.unlocked {
+    border-color: var(--color-gold);
+    background: var(--bg-surface-active);
+}
+
+.skill-node-title {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: var(--color-white-bright);
+}
+
+.skill-node-desc {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-top: var(--spacing-sm);
+}
+
+.skill-tier-label {
+    font-size: 0.7rem;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    margin-bottom: var(--spacing-xs);
+}

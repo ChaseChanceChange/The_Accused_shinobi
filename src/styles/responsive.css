@@ -1,0 +1,171 @@
+/* ============================================================
+   Responsive / Mobile Overrides
+   ============================================================
+   The `.mobile-mode` class is toggled on `document.body` by
+   main.js based on UA detection AND a matchMedia listener for
+   (max-width: 800px).  This eliminates the need for a duplicate
+   @media block — one set of rules covers both real mobile
+   devices and narrow desktop viewports.
+   ------------------------------------------------------------ */
+
+/* ---- Mobile Layout ---- */
+.mobile-mode #minimap-hud {
+    top: 70px !important;
+    right: 10px !important;
+    gap: 6px !important;
+}
+
+.mobile-mode #minimap-canvas {
+    width: clamp(80px, 15vw, 120px) !important;
+    height: clamp(80px, 15vw, 120px) !important;
+}
+
+.mobile-mode .minimap-buff-list {
+    gap: 6px !important;
+    min-width: 34px !important;
+    padding: 6px !important;
+}
+
+.mobile-mode .minimap-buff-row {
+    gap: 4px !important;
+    width: min(98px, calc(100vw - 110px)) !important;
+}
+
+.mobile-mode .minimap-buff-icon {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 15px !important;
+}
+
+.mobile-mode #game-timer {
+    font-size: clamp(14px, 2.5vw, 18px) !important;
+    padding: 5px 10px !important;
+    min-width: 90px !important;
+    top: 10px !important;
+    left: 10px !important;
+}
+
+.mobile-mode #objectives-panel {
+    top: 62px !important;
+    left: 10px !important;
+    width: min(280px, calc(100vw - 20px)) !important;
+    max-height: min(38vh, max(80px, calc(100vh - var(--chat-panel-height, 230px) - var(--chat-panel-bottom, 80px) - 82px))) !important;
+}
+
+.mobile-mode #combat-intent-panel {
+    top: 198px !important;
+    right: 10px !important;
+    width: min(260px, calc(100vw - 20px)) !important;
+}
+
+.mobile-mode #dungeon-entrance-hint {
+    top: 332px !important;
+    right: 10px !important;
+    width: min(260px, calc(100vw - 20px)) !important;
+}
+
+.mobile-mode #player-hud {
+    width: clamp(120px, 28vw, 150px) !important;
+    top: 10px !important;
+    left: clamp(110px, 32vw, 220px) !important;
+    bottom: auto !important;
+}
+
+.mobile-mode .bar-container { height: 15px !important; }
+.mobile-mode .bar-text { font-size: 10px !important; }
+
+.mobile-mode #ability-container {
+    top: 10px !important;
+    left: clamp(250px, 60vw, calc(100vw - 70px)) !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 40px !important;
+    height: 40px !important;
+}
+
+.mobile-mode #chat-box {
+    top: auto !important;
+    left: 10px !important;
+    bottom: 155px !important;
+    width: min(250px, calc(100vw - 20px)) !important;
+    height: 160px !important;
+    min-width: min(250px, calc(100vw - 20px)) !important;
+    min-height: 160px !important;
+    font-size: 10px !important;
+    resize: none !important;
+}
+
+.mobile-mode { --chat-panel-bottom: 155px; }
+
+.mobile-mode .chat-tabs__resize-hint {
+    display: none;
+}
+
+/* Touch controls */
+.mobile-mode #mobile-actions {
+    width: 120px !important;
+    height: 120px !important;
+    bottom: 20px !important;
+    right: 20px !important;
+}
+
+.mobile-mode #btn-mobile-attack {
+    width: 60px !important;
+    height: 60px !important;
+    font-size: 12px !important;
+}
+
+.mobile-mode #btn-mobile-ability {
+    width: 45px !important;
+    height: 45px !important;
+    bottom: 70px !important;
+    right: 15px !important;
+    font-size: 10px !important;
+}
+
+.mobile-mode #btn-mobile-interact {
+    width: 45px !important;
+    height: 45px !important;
+    bottom: 15px !important;
+    right: 70px !important;
+    font-size: 10px !important;
+}
+
+.mobile-mode #joystick-zone {
+    width: 100px !important;
+    height: 100px !important;
+    bottom: 30px !important;
+    left: 30px !important;
+}
+
+.mobile-mode #joystick-knob {
+    width: 40px !important;
+    height: 40px !important;
+}
+
+/* Windows / panels stay viewport-clamped via UIManager; do not scale content down. */
+
+/* ---- Landscape Mode (short viewports) ---- */
+@media (max-height: 600px) {
+    #minimap-canvas {
+        width: 100px !important;
+        height: 100px !important;
+    }
+
+    #game-timer {
+        font-size: 16px !important;
+        padding: 4px 8px !important;
+    }
+
+    #mobile-actions {
+        transform: scale(0.8);
+        transform-origin: bottom right;
+    }
+
+    #joystick-zone {
+        transform: scale(0.8);
+        transform-origin: bottom left;
+    }
+
+    /* Window shells use max-height and internal scrolling instead of transform scaling. */
+}
