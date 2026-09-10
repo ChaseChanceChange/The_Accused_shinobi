@@ -1,0 +1,344 @@
+# EIDOLON
+
+[![CI](https://github.com/aeml/eidolon/actions/workflows/ci.yml/badge.svg)](https://github.com/aeml/eidolon/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-report-blue)](https://eidolon.mendola.tech/coverage/)
+
+> Project by [Robert Mendola](https://mendola.tech)
+
+## Overview
+
+Eidolon is a browser-based realtime multiplayer action RPG and systems architecture project. The client is a vanilla JavaScript + Three.js browser application, while the backend is an authoritative Go game server that manages simulation, networking, and persistence.
+
+For portfolio purposes, the repo is best understood as a full-stack realtime systems project with a game front end:
+
+- browser client and server are cleanly separated
+- gameplay state is owned by the server, not trusted to the client
+- clients communicate over WebSockets
+- the server streams state with protobuf `StateEnvelope` messages using `EDPB` wire framing
+- MongoDB backs persistent character and social data
+- deployment includes Docker, MongoDB, Nginx, and TLS automation
+
+## Engineering Focus
+
+This project demonstrates backend and systems engineering work in a realtime interactive environment:
+
+- Server-authoritative simulation: movement, combat, dungeon progression, rewards, party flows, and reconnect behavior are enforced on the Go server.
+- Realtime communication: the browser sends player intent over WebSockets, while the server streams full and delta state updates back to clients.
+- Protocol design: the runtime uses a mixed transport model with JSON command messages and binary protobuf state replication.
+- Synchronization: the codebase includes client prediction/smoothing work, remote entity replication, reconnect/session resume, and connection-state handling.
+- Persistence: MongoDB is used for persistent game data, with tests around party persistence and session resume paths already in the repo.
+- Separation of concerns: the client owns rendering, input, HUD, and presentation; the server owns simulation, authority, validation, and canonical state.
+- Deployment and operations: the repo includes Docker-based server packaging, Docker Compose for app + Mongo, Nginx reverse proxy setup, and TLS provisioning scripts.
+- Scalable architecture direction: the current roadmap emphasizes decomposition of large runtime modules, protocol hardening, persistence hardening, and multiplayer soak validation.
+
+## Current Features
+
+- Realtime multiplayer action RPG gameplay with four player classes: Fighter, Rogue, Wizard, and Cleric.
+- Server-authoritative movement, combat, abilities, jumping, dungeon entry, and reward flow.
+- Four overworld realms plus town, and four instanced dungeons.
+- Persistent social and progression systems including parties, social statuses, friendships, stash, forge, quests, and trading house features.
+- Reconnect and session-resume flow with exponential backoff on the client and resume-token handling on the server.
+- Protobuf full/delta state streaming for entity replication.
+- Browser-side asset caching through a service worker.
+- Client and server test coverage in CI, with coverage reports published to GitHub Pages.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser[Browser Client\nVanilla JS + Three.js] --> Input[Input + UI + Rendering]
+    Input --> NM[NetworkManager]
+    Browser --> SW[Service Worker Asset Cache]
+
+    NM -->|JSON player commands| WS[WebSocket /ws]
+    WS --> Server[Go Authoritative Server]
+    Server --> Sim[Simulation\nmovement combat dungeons parties]
+    Server --> Proto[Binary protobuf stream\nEDPB + StateEnvelope full/delta]
+    Server --> Json[JSON control messages\nlogin errors resume time]
+    Sim --> Mongo[(MongoDB persistence)]
+
+    Proto --> NM
+    Json --> NM
+
+    CI[GitHub Actions CI] --> Pages[GitHub Pages coverage site]
+    CI --> Deploy[SSH deploy workflow]
+    Deploy --> Host[Docker Compose + Nginx + TLS]
+    Host --> Server
+```
+
+Core runtime ownership:
+
+- `src/core/GameEngine.js`: main client runtime loop and authoritative state application.
+- `src/core/NetworkManager.js`: WebSocket lifecycle, JSON sends, protobuf decode, reconnect, and resume handling.
+- `src/core/RenderSystem.js`: rendering, camera, scenes, and visual presentation.
+- `src/core/AbilityController.js`: local ability orchestration and targeting.
+- `server/main.go`: WebSocket server, message handling, protocol flow, and state broadcast pipeline.
+- `server/internal/game/world.go`: authoritative world simulation and gameplay rules.
+- `server/internal/database/`: persistence layer backing stored runtime data.
+- `server/deploy/`: Docker, Compose, restore, Nginx, and TLS deployment scripts.
+
+The most backend-relevant pattern in the repo is the split between client intent and server state ownership. The browser sends actions such as `move`, `jump`, `attack`, `ability`, `party_*`, and `resume_session`; the server validates and applies those actions, then republishes canonical world state to all connected clients.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Client | Vanilla JavaScript ES modules, Three.js `0.181.2` |
+| Networking | WebSockets |
+| State Protocol | JSON command messages, protobuf `StateEnvelope` replication with `EDPB` framing |
+| Server | Go `1.24.5`, Gorilla WebSocket, protobuf |
+| Persistence | MongoDB |
+| Asset Delivery | Static client files, service worker caching |
+| Deployment | Docker, Docker Compose, Nginx, Certbot TLS scripts |
+| Browser QA | Playwright `1.61.1`; system Chrome for character gameplay and pinned Chromium for hosted anonymous CI |
+| Validation | Jest, ESLint, Playwright, `go test`, `go build`, npm audit, GitHub Actions |
+
+## Local Development
+
+### Prerequisites
+
+- Node.js `24` (the supported release line) and npm `9+`
+- Go `1.24.5`
+- MongoDB
+
+### Run The Server
+
+From `server/`:
+
+```bash
+go run .
+```
+
+Default local WebSocket endpoint:
+
+- `ws://localhost:8080/ws`
+
+### Run The Client
+
+From the repo root:
+
+```bash
+npm ci
+npm run serve
+```
+
+Open:
+
+- `http://127.0.0.1:4173`
+
+If you want the browser client to connect to the local server instead of the production endpoint, update the configured server address in `index.html` as part of your local workflow.
+
+### Local Deployment Path
+
+The repo also includes a deployment-oriented server path under `server/`:
+
+```bash
+cp .env.example .env
+docker compose build api
+docker compose up -d
+```
+
+For Linux host deployment, see `server/deploy/README_LINUX.md`.
+
+## Testing/Building
+
+Client validation from the repo root:
+
+```bash
+npm ci
+npm test
+npm run lint
+npm audit --audit-level=low
+npm run docs:animations
+npm run test:e2e:anonymous
+```
+
+Optional smoke subset:
+
+```bash
+npm run test:smoke
+```
+
+Full isolated character and animation QA (Docker and hardware-accelerated system Chrome required):
+
+```bash
+sg render -c 'npm run verify:browser-gpu'
+sg render -c 'npm run test:e2e:animations'
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=movement npm run test:e2e:isolated'
+sg render -c 'npm run test:e2e:isolated'
+```
+
+The deterministic gallery renders every canonical base/rune presentation and every actor inventory entry at High and Low quality through production rendering code. The movement route uses real mouse input and frame-samples exact, sub-arrival, nearby, sustained, camera-follow, acknowledgement, and correction behavior. The isolated route builds a per-run temporary server image, creates uniquely suffixed Mongo/API containers, a private network, and disposable allowlisted characters. It executes the general character and movement routes, all four class locomotion/death and ability/rune matrices, and the two-browser remote-animation/movement matrix through visible input, then removes only the resources it created. It refuses resource collisions or an occupied port; override the default port with `EIDOLON_ISOLATED_QA_PORT`.
+
+Playwright's local static server uses port `4173` by default. Set `EIDOLON_E2E_WEB_PORT` when that port is already reserved by another service; the predeploy character gate uses dedicated port `41873`.
+
+Local isolated QA defaults to API port `18185`; CI explicitly reserves `18085`.
+Linux defaults to the existing host-network mode, with authenticated disposable
+Mongo on the adjacent port and both services bound to loopback. This avoids local
+Docker bridge/veth creation and deletion while another Chrome check is running.
+Other hosts retain bridge mode; `EIDOLON_ISOLATED_QA_NETWORK_MODE=bridge` explicitly
+selects it. Port-collision checks and exact-resource cleanup remain in place.
+Older queued releases still use API port `18085`, so keep local checks on `18185`.
+
+Fresh-progression measurements are separate from prepared-character functional QA:
+
+```bash
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=fresh-opening EIDOLON_E2E_CLASS=Fighter npm run test:e2e:isolated'
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=fresh-collection EIDOLON_E2E_CLASS=Wizard npm run test:e2e:isolated'
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=fresh-hunt EIDOLON_E2E_CLASS=Wizard npm run test:e2e:isolated'
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=fresh-ready EIDOLON_E2E_CLASS=Wizard npm run test:e2e:isolated'
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=fresh-dungeon EIDOLON_E2E_CLASS=Wizard npm run test:e2e:isolated'
+```
+
+These optional routes create disposable level-one characters and earn progress
+through ordinary input, without level/item/quest/travel grants. Each extends the
+preceding route: opening Chronicle, natural collection, Skeleton contract, then
+Wizard equipment/point preparation and the Imp contract. `fresh-ready` currently
+supports Wizard preparation only and checks saved readiness for Verdant, not a
+dungeon clear. `fresh-dungeon` continues that same earned character through the
+town guide into Normal level-30 Verdant, requiring all rooms/bosses, recall,
+completed-run re-entry, manual story reward and saved Earth-raid access. It does
+not use the prepared dungeon route's level grant or protected entrance waypoint.
+The whole earned route retains its one-hour ceiling, damage-stall/death checks
+and browser-error assertions; a clean readiness checkpoint is recorded separately
+before dungeon entry. These routes use read-only world positions to assist navigation; passing
+does not prove human discovery, enjoyable pacing or physical-phone usability.
+Run only one local Eidolon Playwright route at a time. Recorded outcomes and
+limitations are in [fresh progression evidence](docs/plans/fresh-progression-evidence.md).
+
+Legacy equipment recovery has its own disposable-save regression route:
+
+```bash
+sg render -c 'EIDOLON_ISOLATED_QA_ROUTE=equipment-recovery npm run test:e2e:isolated'
+```
+
+This route registers a new empty account in the run-owned local Mongo instance,
+then seeds an old-style unsupported gem slot before its first world entry. It
+checks full-bag rejection, exact stack conservation, ordinary equip/recovery UI,
+saved database state and fresh-login persistence. It cannot target production
+and is not earned-progression or balance evidence. The full isolated suite also
+includes it under a separate disposable account. See the
+[equipment recovery record](docs/plans/2026-09-06-equipment-recovery.md).
+
+Talent cast-cost/cooldown QA is available with
+`EIDOLON_ISOLATED_QA_ROUTE=talent-economy npm run test:e2e:isolated` (under the
+same system Chrome/render-group setup). It prepares a disposable level-100
+Wizard, buys ranks through the phone interface, checks server-confirmed spell
+cost/cooldown changes and repeats after fresh login in landscape. This functional
+route is included in full isolated QA; it does not measure earned progression.
+
+The `talent-healing` isolated route uses a prepared level-100 Cleric and the
+existing allowlisted low-health fixture, then selects the healer branch and buys
+five Healing Light Mastery ranks through the phone UI. It checks real mana use,
+exact heal events and visible floating numbers before/after purchase and after
+fresh login in landscape. This is functional spell verification, not earned
+progression. It is included in full isolated QA.
+
+The optional isolated route `EIDOLON_ISOLATED_QA_ROUTE=talent-duration` prepares a
+disposable Wizard at level 100, then uses phone touch controls to select a branch,
+buy Arcane Stability ranks and cast Arcane Shield. It checks server-reported
+20 → 25 second durations, survival past the old deadline, actual expiry and
+saved ranks after login/rotation. The phone Effects panel must show matching
+countdowns and expiry while still permitting normal Skill casts and chat access.
+It is a functional fixture, not earned progression. Anonymous smoke also covers
+crowded effect lists, native touch scrolling and unobstructed controls at four
+phone viewports; physical-device playability remains a separate gate.
+
+For the earned Wizard comparison, set `EIDOLON_E2E_FRESH_EARLY_PREPARATION=1`
+with isolated `fresh-hunt`, `fresh-ready` or `fresh-dungeon`. After the normal
+collection quest it equips eligible earned drops, spends up to five Intelligence
+points and available Fireball Mastery ranks, and selects the earned utility
+branch through ordinary menus. Later preparation fills remaining empty equipment
+slots and tops Mastery up to five without spending another five stat points.
+Defensive hunt inputs only use actually unlocked skills. The default unequipped
+Skeleton baseline remains unchanged; neither path grants progress or changes
+the existing two-respawn bound. This comparison is not human-discovery evidence.
+
+`npm run audit:talent-consumers` runs separate paired-cast probes for still-open
+range and area talent consumers. It currently fails on those
+known defects; it is not a passing release gate. It uses a temporary Go build
+overlay and does not modify server source or saved characters. Evidence and
+next implementation requirements are in the
+[consumer audit](docs/plans/2026-09-06-talent-consumer-audit.md).
+
+The isolated `forge-guide` route seeds a new disposable local account before its
+first login, then checks real Forge purchases, immediate selected-item/material
+refresh, saved equipment and family-specific guide choices. It is included in
+full predeploy QA and cannot seed a production account. Run it with
+`EIDOLON_ISOLATED_QA_ROUTE=forge-guide npm run test:e2e:isolated` under the renderer
+group; its prepared gear/materials do not prove earned progression.
+
+The isolated `phone-inventory` route also checks ordinary town-stash interaction,
+explicit Store/Withdraw, and fresh-login persistence of the complete serialized
+item in portrait and landscape. It prepares a disposable level-30 functional
+fixture; this is not earned-progression or physical-phone evidence.
+
+The generated canonical inventory is [docs/ANIMATION_COVERAGE.md](docs/ANIMATION_COVERAGE.md). Edit its source manifests and regenerate it; do not hand-edit its tables.
+
+Server validation from `server/`:
+
+```bash
+go test -race ./...
+go build -trimpath ./...
+```
+
+Notes:
+
+- `npm ci` runs `prepare:client`, which copies locked Three.js and protobuf runtimes from `node_modules` into ignored `vendor/`. Production no longer depends on a runtime CDN.
+- The browser client remains static ES modules; there is no application bundle.
+- Local end-to-end runs can point the test-only static server at an isolated backend with `EIDOLON_E2E_WS_URL=ws://127.0.0.1:<port>/ws`; production HTML is never rewritten.
+- Credentialed browser QA uses `EIDOLON_E2E_USERNAME` and `EIDOLON_E2E_PASSWORD`. Set `EIDOLON_E2E_FULL_GAMEPLAY=1` only for a dedicated QA character that may level, fight, loot, and enter a dungeon. Optional `_SECONDARY` variables enable the two-browser route.
+- Credentialed Playwright traces, screenshots, and video are disabled so account identifiers and form inputs cannot enter artifacts. Playwright's automatic input-valued failure snapshot is also disabled for credentialed routes, and CI redacts then scans supplied credential values before upload. The anonymous route retains screenshots, traces, and video on failure.
+
+### Release verification
+
+- Client identity: `https://eidolon.mendola.tech/release.json`
+- Server readiness and identity: `https://eserver.mendola.tech/healthz`
+- Both endpoints report the deployed Git commit. The deployment workflow polls until they match the pushed SHA, then runs the live Playwright suite.
+- Procedural cutover scope and closure gates: [docs/art/FINAL_PROCEDURAL_CUTOVER_AUDIT.md](docs/art/FINAL_PROCEDURAL_CUTOVER_AUDIT.md)
+- Complete migration ledger: [docs/art/PROCEDURAL_MIGRATION_INVENTORY.md](docs/art/PROCEDURAL_MIGRATION_INVENTORY.md)
+- `/level`, `/qa-waypoint <combat|encounter|verdant>`, `/qa-hazard <earth|water|fire|air|town>`, `/qa-loot-next`, `/qa-disconnect`, `/qa-animation-ready [low-health|persistent|near-death]`, and `/qa-protection off` are release-QA commands. They are disabled unless the authenticated username appears in the server's `EIDOLON_QA_USERNAMES` allowlist. The encounter waypoint chooses the live overworld enemy nearest the fixed combat anchor and places only the QA character eight metres toward that anchor; it neither spawns nor mutates the enemy and accepts no coordinates. The hazard pilgrimage accepts only four fixed canonical hazard centers plus Lanternhold, preserves hostile protection, and permits normal environmental damage for 45 seconds. Animation readiness restores bounded resources/cooldowns; `low-health` permits the Last Stand input path, `persistent` extends only the next Spirit Guardians activation/boost long enough to prove late-join reconstruction, and `near-death` clears prior ability protections before a real hostile death/respawn check. Protection can only be turned off after a bounded QA waypoint so death/respawn remains real server-authoritative gameplay.
+
+## Project Status
+
+- Current in-game displayed version: `Alpha 1.0.1`
+- Visual polish candidate: refined procedural characters/equipment, an equipped 3D character sheet, unified responsive menus, clearer terrain and warnings, and a distinct Dark King. Scope, comparisons and hardware/gameplay evidence: [visual polish ledger](docs/art/VISUAL_POLISH_PLAN.md). Reproduce the controlled ten-hero workload with `npm run test:e2e:visual-load`.
+- Active implementation line: `Alpha 1.0` release-candidate closeout and beta readiness
+- Current foundation: four classes and elemental realms; authoritative multiplayer combat; persistent characters, parties, friends, guilds, direct trade, and auctions; structured chat and moderation; duels and arenas; five dungeons; four elemental raids; Resonance progression; and the Dark Realm endgame raid
+- Main campaign: the automatically started 15-chapter Fourfold Chronicle moves through Earth, Water, Fire, and Air collection arcs and dungeon clears, then four distinct raids with three-wave crystal-repair Vigils, the Umbral Nexus portal gate, and Malachar's four-Eidolon finale
+- Current engineering emphasis: exact-candidate verification and beta planning around scale, live balance, operations, moderation workflow, accessibility feedback, and content cadence
+
+Verification state as of September 4, 2026:
+
+- The Alpha 1.0 candidate adds migrations and repository coverage, protocol and exploit hardening, handler admission/rate policy, load and benchmark tooling, nightly soak configuration, guild/PvP/endgame coverage, and Fourfold Chronicle regression tests.
+- Locked browser runtimes, disposable-character QA, hardware-accelerated animation/movement routes, release identity, and deployment SHA checks remain part of the release pipeline.
+- The most recent production evidence predates this uncommitted Alpha 1.0 candidate. No documentation should imply the candidate is live until the exact committed SHA passes deployment and live-character verification.
+- The durable browser process and evidence requirements are retained in `docs/plans/live-browser-qa-checklist.md`.
+
+Current measured hotspots (physical lines, `wc -l`):
+
+| File | LOC |
+|---|---:|
+| `server/internal/game/world.go` | 1,422 |
+| `server/main.go` | 938 |
+| `src/core/GameEngine.js` | 2,310 |
+| `src/ui/UIManager.js` | 1,216 |
+
+These measurements satisfy the Alpha 1.0 decomposition gates. New beta work should preserve the extracted ownership boundaries instead of rebuilding coordinator monoliths.
+
+## Media TODO
+
+Existing screenshots live under `docs/media/`:
+
+- `docs/media/gameplay-overworld.png`
+- `docs/media/dungeon-run.png`
+
+Still useful to add:
+
+- combat screenshot showing targeting, damage readability, and hotbar usage
+- dungeon screenshot showing objective guidance, party state, and reward summary UI
+- short gameplay GIF showing movement, combat, loot, and menu responsiveness
+
+## License
+
+This project is open source.
