@@ -1,7 +1,7 @@
 {
-  "name": "eidolon-tests",
+  "name": "the-accused-shadow-shinobi",
   "version": "1.0.60",
-  "description": "Eidolon browser game client, validation, and release tooling",
+  "description": "The Accused - Shadow-Shinobi browser game client and release tooling",
   "type": "module",
   "engines": {
     "node": ">=24.0.0 <25.0.0",
