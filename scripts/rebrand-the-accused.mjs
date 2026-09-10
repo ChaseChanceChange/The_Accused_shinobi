@@ -3,29 +3,23 @@ import path from 'node:path';
 
 const root = process.cwd();
 const skipDirs = new Set(['.git', 'node_modules', 'coverage', 'test-results']);
-const textExtensions = new Set(['.js', '.mjs', '.cjs', '.go', '.html', '.css', '.json', '.md', '.txt', '.yml', '.yaml', '.sh', '.ps1']);
+const textExtensions = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.md', '.txt']);
 
+// Only replace explicit player-facing or documentation phrases.
+// Do not replace generic identifiers such as EidolonDevourer or environment
+// variable names because those may be part of stable internal contracts.
 const replacements = [
-    // Legacy game identity -> current game identity.
-    ['Journey through Earth, Water, Fire, and Air. Restore their ancient crystals, awaken the Eidolons, and confront the darkness beyond.', 'Test your skill, shape your shadow, and forge your legend. Enter the world of The Accused — Shadow-Shinobi, master combat and crafting, gather rare materials, and build a shinobi capable of rising to Transcendent.'],
-    ['EIDOLON ONLINE', 'THE ACCUSED - SHADOW-SHINOBI'],
-    ['Eidolon Online', 'The Accused - Shadow-Shinobi'],
-    ['EIDOLON', 'THE ACCUSED'],
-    ['Eidolon', 'The Accused'],
-    ['eidolon-tests', 'the-accused-shadow-shinobi'],
-    ['eidolon-server', 'the-accused-shadow-shinobi-server'],
+    [
+        'Journey through Earth, Water, Fire, and Air. Restore their ancient crystals, awaken the Eidolons, and confront the darkness beyond.',
+        'Test your skill, shape your shadow, and forge your legend. Enter The Accused — Shadow-Shinobi, master combat and crafting, gather rare materials, build your own fighting style, and rise beyond god-tier to become Transcendent.'
+    ],
+    ['EIDOLON ONLINE', 'THE ACCUSED — SHADOW-SHINOBI'],
+    ['Eidolon Online', 'The Accused — Shadow-Shinobi'],
     ['eidolon.mendola.tech', 'github.com/ChaseChanceChange/The_Accused_shinobi'],
     ['eserver.mendola.tech', 'localhost:8080'],
     ['https://github.com/aeml/eidolon', 'https://github.com/ChaseChanceChange/The_Accused_shinobi'],
     ['Robert Mendola', 'ChaseCraft / Chase'],
-    ['mendola.tech', 'github.com/ChaseChanceChange/The_Accused_shinobi'],
-    ['EIDOLON_QA_USERNAMES', 'THE_ACCUSED_QA_USERNAMES'],
-    ['EIDOLON_ISOLATED_QA_PORT', 'THE_ACCUSED_ISOLATED_QA_PORT'],
-    ['EIDOLON_ISOLATED_QA_NETWORK_MODE', 'THE_ACCUSED_ISOLATED_QA_NETWORK_MODE'],
-    ['EIDOLON_E2E_WEB_PORT', 'THE_ACCUSED_E2E_WEB_PORT'],
-    ['EIDOLON_ISOLATED_QA_ROUTE', 'THE_ACCUSED_ISOLATED_QA_ROUTE'],
-    ['EIDOLON_E2E_CLASS', 'THE_ACCUSED_E2E_CLASS'],
-    ['EIDOLON_QA_', 'THE_ACCUSED_QA_'],
+    ['mendola.tech', 'github.com/ChaseChanceChange/The_Accused_shinobi']
 ];
 
 let changedFiles = 0;
@@ -47,6 +41,7 @@ async function walk(dir) {
         const before = await fs.readFile(fullPath, 'utf8');
         let after = before;
         let fileChanges = 0;
+
         for (const [from, to] of replacements) {
             const count = after.split(from).length - 1;
             if (count > 0) {
